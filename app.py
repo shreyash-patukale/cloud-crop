@@ -4,8 +4,8 @@ import datetime
 app = Flask(__name__)
 
 # Placeholder values
-temperature = 25.0
-humidity = 60.0
+temperature = 00.0
+humidity = 00.0
 last_updated = "No data received yet"
 
 @app.route('/')
