@@ -1,1 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DHT11 Sensor Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f1f1f1;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+        h1 {
+            text-align: center;
+        }
+        .sensor-data {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .value {
+            font-size: 2em;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DHT11 Sensor Dashboard</h1>
+        <div class="sensor-data">
+            <div><strong>Temperature:</strong> <span class="value" id="temp"></span>°C</div>
+            <div><strong>Humidity:</strong> <span class="value" id="humidity"></span>%</div>
+        </div>
+    </div>
 
+    <script>
+        async function fetchSensorData() {
+            let response = await fetch('/api/sensor');
+            let data = await response.json();
+            document.getElementById("temp").innerText = data.temperature;
+            document.getElementById("humidity").innerText = data.humidity;
+        }
+
+        setInterval(fetchSensorData, 3000);  // Fetch data every 3 seconds
+        fetchSensorData();  // Initial fetch
+    </script>
+</body>
+</html>
