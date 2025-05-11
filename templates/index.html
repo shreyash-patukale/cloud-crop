@@ -175,29 +175,85 @@
                 return null;
             }
         }
-    
+
+        // Function to downsample data by averaging over hourly intervals
+        function downsampleData(history, maxPoints = 24) {
+            if (!history || history.length === 0) return { timestamps: [], temperatures: [], humidities: [] };
+
+            // Sort by timestamp to ensure chronological order
+            history.sort((a, b) => a.timestamp - b.timestamp);
+
+            // Calculate time range and interval (24 hours / maxPoints)
+            const endTime = history[history.length - 1].timestamp;
+            const startTime = endTime - 24 * 60 * 60; // Last 24 hours
+            const interval = (24 * 60 * 60) / maxPoints; // Seconds per bucket
+
+            const buckets = Array(maxPoints).fill().map(() => ({
+                temps: [],
+                hums: [],
+                timestamp: null
+            }));
+
+            // Assign data to buckets
+            history.forEach(entry => {
+                if (entry.timestamp >= startTime && entry.timestamp <= endTime) {
+                    const bucketIndex = Math.floor((entry.timestamp - startTime) / interval);
+                    if (bucketIndex >= 0 && bucketIndex < maxPoints) {
+                        buckets[bucketIndex].temps.push(parseFloat(entry.temperature));
+                        buckets[bucketIndex].hums.push(parseFloat(entry.humidity));
+                        buckets[bucketIndex].timestamp = entry.timestamp;
+                    }
+                }
+            });
+
+            // Compute averages and timestamps
+            const timestamps = [];
+            const temperatures = [];
+            const humidities = [];
+
+            buckets.forEach((bucket, index) => {
+                if (bucket.temps.length > 0) {
+                    const avgTemp = bucket.temps.reduce((sum, val) => sum + val, 0) / bucket.temps.length;
+                    const avgHum = bucket.hums.reduce((sum, val) => sum + val, 0) / bucket.hums.length;
+                    const date = new Date(bucket.timestamp * 1000);
+                    timestamps.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                    temperatures.push(avgTemp.toFixed(1));
+                    humidities.push(avgHum.toFixed(1));
+                } else {
+                    // Fill empty buckets with null or last known value (optional)
+                    timestamps.push(new Date((startTime + index * interval) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                    temperatures.push(null);
+                    humidities.push(null);
+                }
+            });
+
+            return { timestamps, temperatures, humidities };
+        }
+
         // Initialize chart with historical data
         async function initializeChart() {
             const sensorData = await fetchSensorData();
             if (!sensorData) return;
-    
-            const timestamps = [];
-            const temperatureData = [];
-            const humidityData = [];
-    
-            // Process historical data
-            sensorData.history.forEach(entry => {
-                const date = new Date(entry.timestamp * 1000); // Convert Unix timestamp to JS Date
-                timestamps.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-                temperatureData.push(parseFloat(entry.temperature).toFixed(1));
-                humidityData.push(parseFloat(entry.humidity).toFixed(1));
+
+            // Downsample historical data for chart (max 24 points)
+            const { timestamps, temperatures, humidities } = downsampleData(sensorData.history, 24);
+
+            // Use full history for sparklines (last 12 points for detail)
+            const sparklineTimestamps = [];
+            const sparklineTemps = [];
+            const sparklineHums = [];
+            sensorData.history.slice(-12).forEach(entry => {
+                const date = new Date(entry.timestamp * 1000);
+                sparklineTimestamps.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                sparklineTemps.push(parseFloat(entry.temperature).toFixed(1));
+                sparklineHums.push(parseFloat(entry.humidity).toFixed(1));
             });
-    
+
             // Update card values
             document.querySelector('.temperature').textContent = `${sensorData.temperature}°C`;
             document.querySelector('.humidity').textContent = `${sensorData.humidity}%`;
             document.querySelector('.status div:last-child').textContent = `Last Updated: ${sensorData.last_updated}`;
-    
+
             // Create main history chart
             const ctx = document.getElementById('historyChart').getContext('2d');
             const historyChart = new Chart(ctx, {
@@ -207,21 +263,23 @@
                     datasets: [
                         {
                             label: 'Temperature (°C)',
-                            data: temperatureData,
+                            data: temperatures,
                             borderColor: '#e74c3c',
                             backgroundColor: 'rgba(231, 76, 60, 0.1)',
                             borderWidth: 2,
                             tension: 0.3,
-                            fill: true
+                            fill: true,
+                            spanGaps: true // Connect points across null values
                         },
                         {
                             label: 'Humidity (%)',
-                            data: humidityData,
+                            data: humidities,
                             borderColor: '#3498db',
                             backgroundColor: 'rgba(52, 152, 219, 0.1)',
                             borderWidth: 2,
                             tension: 0.3,
-                            fill: true
+                            fill: true,
+                            spanGaps: true
                         }
                     ]
                 },
@@ -234,7 +292,7 @@
                     plugins: {
                         title: {
                             display: true,
-                            text: '24-Hour History',
+                            text: '24-Hour History (Hourly Averages)',
                             font: { size: 16 }
                         },
                         legend: { position: 'top' }
@@ -242,60 +300,66 @@
                     scales: {
                         y: {
                             beginAtZero: false,
-                            suggestedMin: Math.min(...temperatureData) - 5,
-                            suggestedMax: Math.max(...humidityData) + 5
+                            suggestedMin: Math.min(...temperatures.filter(v => v !== null)) - 5,
+                            suggestedMax: Math.max(...humidities.filter(v => v !== null)) + 5
                         }
                     }
                 }
             });
-    
+
             // Create sparklines for temperature and humidity
-            createSparkline('temperature-trend', temperatureData.slice(-12), '#e74c3c');
-            createSparkline('humidity-trend', humidityData.slice(-12), '#3498db');
+            createSparkline('temperature-trend', sparklineTemps, '#e74c3c');
+            createSparkline('humidity-trend', sparklineHums, '#3498db');
         }
-    
+
         // Mini sparkline charts for the cards
         function createSparkline(elementId, data, color) {
             const canvas = document.createElement('canvas');
             canvas.width = 100;
             canvas.height = 30;
             document.getElementById(elementId).appendChild(canvas);
-    
+
             const ctx = canvas.getContext('2d');
             const gradient = ctx.createLinearGradient(0, 0, 0, 30);
             gradient.addColorStop(0, `${color}33`);
             gradient.addColorStop(1, `${color}00`);
-    
+
             ctx.fillStyle = gradient;
             ctx.strokeStyle = color;
             ctx.lineWidth = 1;
-    
-            const max = Math.max(...data);
-            const min = Math.min(...data);
+
+            const validData = data.filter(val => val !== null);
+            const max = Math.max(...validData);
+            const min = Math.min(...validData);
             const range = max - min || 1;
-    
+
             // Draw the sparkline
             ctx.beginPath();
             data.forEach((value, index) => {
-                const x = index * (canvas.width / (data.length - 1));
-                const y = canvas.height - ((value - min) / range) * canvas.height;
-                if (index === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
+                if (value !== null) {
+                    const x = index * (canvas.width / (data.length - 1));
+                    const y = canvas.height - ((value - min) / range) * canvas.height;
+                    if (index === 0 || data[index - 1] === null) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
                 }
             });
-    
+
             ctx.stroke();
-            ctx.lineTo(canvas.width, canvas.height);
-            ctx.lineTo(0, canvas.height);
-            ctx.closePath();
-            ctx.fill();
+            // Fill area under the line
+            if (validData.length > 0) {
+                ctx.lineTo(canvas.width, canvas.height);
+                ctx.lineTo(0, canvas.height);
+                ctx.closePath();
+                ctx.fill();
+            }
         }
-    
+
         // Initialize the dashboard
         initializeChart();
-    
+
         // Periodically update the dashboard
         setInterval(initializeChart, 60000); // Update every 60 seconds
     </script>
