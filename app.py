@@ -2,6 +2,7 @@ from flask import Flask, jsonify, render_template, request
 import datetime
 from collections import deque
 import time
+import statistics
 
 app = Flask(__name__)
 
@@ -27,11 +28,48 @@ def get_sensor_data():
         entry for entry in sensor_data
         if entry['timestamp'] >= one_day_ago
     ]
+
+    # Aggregate data into 5-minute intervals (288 points for 24 hours)
+    interval = 5 * 60  # 5 minutes in seconds
+    aggregated_data = []
+    if recent_data:
+        # Group data by 5-minute intervals
+        start_time = recent_data[0]['timestamp']
+        end_time = recent_data[-1]['timestamp']
+        current_time = start_time - (start_time % interval)
+        
+        temp_values = []
+        hum_values = []
+        current_interval = current_time + interval
+        
+        for entry in recent_data:
+            if entry['timestamp'] < current_interval:
+                temp_values.append(float(entry['temperature']))
+                hum_values.append(float(entry['humidity']))
+            else:
+                if temp_values and hum_values:
+                    aggregated_data.append({
+                        'timestamp': current_interval - interval / 2,  # Middle of interval
+                        'temperature': round(statistics.mean(temp_values), 1),
+                        'humidity': round(statistics.mean(hum_values), 1)
+                    })
+                temp_values = [float(entry['temperature'])]
+                hum_values = [float(entry['humidity'])]
+                current_interval += interval
+        
+        # Add the last interval if it has data
+        if temp_values and hum_values:
+            aggregated_data.append({
+                'timestamp': current_interval - interval / 2,
+                'temperature': round(statistics.mean(temp_values), 1),
+                'humidity': round(statistics.mean(hum_values), 1)
+            })
+
     return jsonify({
         "temperature": temperature,
         "humidity": humidity,
         "last_updated": last_updated,
-        "history": recent_data  # Return historical data
+        "history": aggregated_data  # Return aggregated data
     })
 
 @app.route('/update_sensor', methods=['POST'])
