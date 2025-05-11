@@ -5,11 +5,297 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DHT22 Sensor Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2ecc71;
+            --background-color: #f5f7fa;
+            --card-color: #ffffff;
+            --text-color: #2c3e50;
+            --border-radius: 12px;
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .card-title {
+            color: var(--text-color);
+            font-size: 18px;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .card-value {
+            font-size: 36px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .temperature {
+            color: #e74c3c;
+        }
+
+        .humidity {
+            color: var(--primary-color);
+        }
+
+        .chart-container {
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .status {
+            display: flex;
+            justify-content: space-between;
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            padding: 15px 20px;
+            box-shadow: var(--shadow);
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background-color: #2ecc71;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 15px;
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-    <h1>DHT22 Sensor Data</h1>
-    <p> Water Temperature: {{ temperature }} °C</p>
-    <p>Humidity: {{ humidity }} %</p>
-    <p>Last Updated: {{ last_updated }}</p>
+    <div class="container">
+        <header>
+            <h1>DHT22 Sensor Dashboard</h1>
+            <p>Real-time water temperature and humidity monitoring</p>
+        </header>
+
+        <div class="dashboard">
+            <div class="card">
+                <div class="card-title">Water Temperature</div>
+                <div class="card-value temperature">{{ temperature }}°C</div>
+                <div id="temperature-trend"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Humidity</div>
+                <div class="card-value humidity">{{ humidity }}%</div>
+                <div id="humidity-trend"></div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="historyChart"></canvas>
+        </div>
+
+        <div class="status">
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span>Sensor Online</span>
+            </div>
+            <div>Last Updated: {{ last_updated }}</div>
+        </div>
+
+        <footer>
+            <p>DHT22 Sensor Dashboard • Powered by Chart.js</p>
+        </footer>
+    </div>
+
+    <script>
+        // Sample historical data for demonstration
+        const timestamps = [];
+        const temperatureData = [];
+        const humidityData = [];
+        
+        // Generate sample data for the past 24 hours
+        const now = new Date();
+        for (let i = 24; i >= 0; i--) {
+            const time = new Date(now - i * 60 * 60 * 1000);
+            timestamps.push(time.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+            
+            // Create some realistic fluctuating data
+            const baseTemp = {{ temperature }} || 25;
+            const baseHumidity = {{ humidity }} || 60;
+            
+            temperatureData.push((baseTemp + Math.sin(i/4) * 1.5).toFixed(1));
+            humidityData.push((baseHumidity + Math.cos(i/3) * 5).toFixed(1));
+        }
+        
+        // Create a chart for historical data
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        const historyChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: timestamps,
+                datasets: [
+                    {
+                        label: 'Temperature (°C)',
+                        data: temperatureData,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: 'Humidity (%)',
+                        data: humidityData,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: '24-Hour History',
+                        font: {
+                            size: 16
+                        }
+                    },
+                    legend: {
+                        position: 'top',
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        suggestedMin: Math.min(...temperatureData) - 5,
+                        suggestedMax: Math.max(...humidityData) + 5
+                    }
+                }
+            }
+        });
+
+        // Mini sparkline charts for the cards
+        function createSparkline(elementId, data, color) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 30;
+            document.getElementById(elementId).appendChild(canvas);
+            
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 0, 30);
+            gradient.addColorStop(0, `${color}33`);
+            gradient.addColorStop(1, `${color}00`);
+            
+            ctx.fillStyle = gradient;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            
+            const max = Math.max(...data);
+            const min = Math.min(...data);
+            const range = max - min || 1;
+            
+            // Draw the sparkline
+            ctx.beginPath();
+            data.forEach((value, index) => {
+                const x = index * (canvas.width / (data.length - 1));
+                const y = canvas.height - ((value - min) / range) * canvas.height;
+                if (index === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+            
+            ctx.stroke();
+            
+            // Fill area under the line
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        // Create sparklines for temperature and humidity
+        createSparkline('temperature-trend', temperatureData.slice(-12), '#e74c3c');
+        createSparkline('humidity-trend', humidityData.slice(-12), '#3498db');
+        
+        // Update time
+        function updateTime() {
+            const currentTime = new Date();
+            const formattedTime = currentTime.toLocaleString();
+            if (!('{{ last_updated }}')) {
+                document.querySelectorAll('.status div:last-child')[0].textContent = 'Last Updated: ' + formattedTime;
+            }
+        }
+        
+        // Update the time on page load
+        updateTime();
+    </script>
 </body>
 </html>
