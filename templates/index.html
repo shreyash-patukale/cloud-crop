@@ -25,10 +25,63 @@
             color: var(--text-color);
         }
 
+        nav {
+            background-color: var(--card-color);
+            padding: 15px 20px;
+            box-shadow: var(--shadow);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+        }
+
+        .nav-button {
+            color: var(--text-color);
+            text-decoration: none;
+            padding: 10px 15px;
+            margin: 0 5px;
+            border-radius: 8px;
+            transition: background-color 0.3s, color 0.3s;
+            font-weight: 500;
+        }
+
+        .nav-button:hover {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .login-button {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
+
+        .login-button:hover {
+            background-color: #2980b9;
+        }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 80px 20px 20px; /* Adjusted for topbar height */
         }
 
         header {
@@ -125,10 +178,38 @@
             .dashboard {
                 grid-template-columns: 1fr;
             }
+
+            nav {
+                flex-direction: column;
+                padding: 10px;
+            }
+
+            .nav-left, .nav-right {
+                margin: 5px 0;
+            }
+
+            .nav-button, .login-button {
+                margin: 5px;
+                padding: 8px 12px;
+            }
+
+            .container {
+                padding-top: 120px; /* Adjusted for stacked nav */
+            }
         }
     </style>
 </head>
 <body>
+    <nav>
+        <div class="nav-left">
+            <a href="/" class="nav-button">Home</a>
+            <a href="#" class="nav-button">Settings</a>
+            <a href="#" class="nav-button">Reports</a>
+        </div>
+        <div class="nav-right">
+            <a href="/login" class="login-button">Login</a>
+        </div>
+    </nav>
     <div class="container">
         <header>
             <h1>Hydroponics Dashboard</h1>
