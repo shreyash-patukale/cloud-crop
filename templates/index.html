@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hydroponics - Data Entry</title>
+    <title>DHT22 Sensor Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <style>
         :root {
             --primary-color: #3498db;
@@ -25,7 +26,7 @@
         }
 
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -44,75 +45,45 @@
             font-size: 28px;
         }
 
-        .entry-form {
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
             background-color: var(--card-color);
             border-radius: var(--border-radius);
             padding: 20px;
             box-shadow: var(--shadow);
-            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
+        .card-title {
+            color: var(--text-color);
+            font-size: 18px;
+            margin-bottom: 10px;
             font-weight: 500;
         }
 
-        input[type="number"], input[type="text"] {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 16px;
-            box-sizing: border-box;
+        .card-value {
+            font-size: 36px;
+            font-weight: bold;
+            margin: 10px 0;
         }
 
-        button {
-            background-color: var(--secondary-color);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.3s;
+        .temperature {
+            color: #e74c3c;
         }
 
-        button:hover {
-            background-color: #27ae60;
+        .humidity {
+            color: var(--primary-color);
         }
 
-        .data-table {
-            background-color: var(--card-color);
-            border-radius: var(--border-radius);
-            padding: 20px;
-            box-shadow: var(--shadow);
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-
-        th {
-            background-color: #f8f9fa;
-        }
-
-        tr:hover {
-            background-color: #f1f2f6;
-        }
-
-        .note-section {
+        .chart-container {
             background-color: var(--card-color);
             border-radius: var(--border-radius);
             padding: 20px;
@@ -120,49 +91,27 @@
             margin-bottom: 20px;
         }
 
-        textarea {
-            width: 100%;
-            height: 100px;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 16px;
-            resize: vertical;
-            box-sizing: border-box;
-            font-family: inherit;
-        }
-
-        .status-message {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 6px;
-            text-align: center;
-        }
-
-        .success {
-            background-color: #d4edda;
-            color: #155724;
-        }
-
-        .error {
-            background-color: #f8d7da;
-            color: #721c24;
-        }
-
-        .nav-links {
+        .status {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 20px;
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            padding: 15px 20px;
+            box-shadow: var(--shadow);
+            align-items: center;
         }
 
-        .nav-links a {
-            color: var(--primary-color);
-            text-decoration: none;
-            font-weight: 500;
+        .status-indicator {
+            display: flex;
+            align-items: center;
         }
 
-        .nav-links a:hover {
-            text-decoration: underline;
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background-color: #2ecc71;
+            border-radius: 50%;
+            margin-right: 8px;
         }
 
         footer {
@@ -171,154 +120,189 @@
             font-size: 14px;
             color: #7f8c8d;
         }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Hydroponics Data Entry</h1>
-            <p>Record new measurements and observations</p>
+            <h1>Hydroponics Dashboard</h1>
+            <p>Real-time water temperature and humidity monitoring</p>
         </header>
 
-        <div class="nav-links">
-            <a href="/">← Back to Dashboard</a>
+        <div class="dashboard">
+            <div class="card">
+                <div class="card-title">Water Temperature</div>
+                <div class="card-value temperature">{{ temperature }}°C</div>
+                <div id="temperature-trend"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Humidity</div>
+                <div class="card-value humidity">{{ humidity }}%</div>
+                <div id="humidity-trend"></div>
+            </div>
         </div>
 
-        <div id="statusMessage"></div>
-
-        <div class="entry-form">
-            <h2>Enter New Reading</h2>
-            <form id="sensorForm" onsubmit="submitReading(event)">
-                <div class="form-group">
-                    <label for="temperature">Water Temperature (°C):</label>
-                    <input type="number" id="temperature" name="temperature" step="0.1" required min="0" max="40">
-                </div>
-                <div class="form-group">
-                    <label for="humidity">Humidity (%):</label>
-                    <input type="number" id="humidity" name="humidity" step="0.1" required min="0" max="100">
-                </div>
-                <div class="form-group">
-                    <label for="notes">Notes (optional):</label>
-                    <textarea id="notes" name="notes" placeholder="Enter any observations or notes about the conditions..."></textarea>
-                </div>
-                <button type="submit">Submit Reading</button>
-            </form>
+        <div class="status">
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span>Sensor Online</span>
+            </div>
+            <div>Last Updated: {{ last_updated }}</div>
         </div>
-
-        <div class="data-table">
-            <h2>Recent Readings</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date & Time</th>
-                        <th>Temperature (°C)</th>
-                        <th>Humidity (%)</th>
-                        <th>Notes</th>
-                    </tr>
-                </thead>
-                <tbody id="readingsTableBody">
-                    <!-- Data will be loaded here -->
-                </tbody>
-            </table>
+        <div class="chart-container">
+            <canvas id="historyChart"></canvas>
         </div>
-
         <footer>
             <p>Cloud Crop</p>
         </footer>
     </div>
 
     <script>
-        // Submit new reading
-        async function submitReading(event) {
-            event.preventDefault();
-            
-            const temperatureInput = document.getElementById('temperature');
-            const humidityInput = document.getElementById('humidity');
-            const notesInput = document.getElementById('notes');
-            
-            const data = {
-                temperature: parseFloat(temperatureInput.value),
-                humidity: parseFloat(humidityInput.value),
-                notes: notesInput.value
-            };
-            
+        // Function to fetch sensor data
+        async function fetchSensorData() {
             try {
-                const response = await fetch('/api/readings', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
-                
-                const result = await response.json();
-                
-                if (response.ok) {
-                    showStatusMessage('Reading submitted successfully!', 'success');
-                    document.getElementById('sensorForm').reset();
-                    loadRecentReadings(); // Refresh the table
-                } else {
-                    showStatusMessage('Error: ' + result.message, 'error');
-                }
-            } catch (error) {
-                showStatusMessage('Error submitting data: ' + error.message, 'error');
-            }
-        }
-        
-        // Load recent readings
-        async function loadRecentReadings() {
-            try {
-                const response = await fetch('/api/readings');
+                const response = await fetch('/api/sensor');
                 const data = await response.json();
-                
-                const tableBody = document.getElementById('readingsTableBody');
-                tableBody.innerHTML = '';
-                
-                data.readings.forEach(reading => {
-                    const row = document.createElement('tr');
-                    
-                    const dateCell = document.createElement('td');
-                    dateCell.textContent = new Date(reading.timestamp * 1000).toLocaleString();
-                    
-                    const tempCell = document.createElement('td');
-                    tempCell.textContent = reading.temperature;
-                    
-                    const humidityCell = document.createElement('td');
-                    humidityCell.textContent = reading.humidity;
-                    
-                    const notesCell = document.createElement('td');
-                    notesCell.textContent = reading.notes || '-';
-                    
-                    row.appendChild(dateCell);
-                    row.appendChild(tempCell);
-                    row.appendChild(humidityCell);
-                    row.appendChild(notesCell);
-                    
-                    tableBody.appendChild(row);
-                });
+                return data;
             } catch (error) {
-                console.error('Error loading readings:', error);
-                showStatusMessage('Error loading readings', 'error');
+                console.error('Error fetching sensor data:', error);
+                return null;
             }
         }
-        
-        // Display status messages
-        function showStatusMessage(message, type) {
-            const statusElement = document.getElementById('statusMessage');
-            statusElement.textContent = message;
-            statusElement.className = 'status-message ' + type;
-            
-            // Clear the message after 5 seconds
-            setTimeout(() => {
-                statusElement.textContent = '';
-                statusElement.className = '';
-            }, 5000);
+
+        // Initialize chart with historical data
+        async function initializeChart() {
+            const sensorData = await fetchSensorData();
+            if (!sensorData) return;
+
+            const timestamps = [];
+            const temperatureData = [];
+            const humidityData = [];
+
+            // Process historical data
+            sensorData.history.forEach(entry => {
+                const date = new Date(entry.timestamp * 1000); // Convert Unix timestamp to JS Date
+                timestamps.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                temperatureData.push(parseFloat(entry.temperature).toFixed(1));
+                humidityData.push(parseFloat(entry.humidity).toFixed(1));
+            });
+
+            // Update card values
+            document.querySelector('.temperature').textContent = `${sensorData.temperature}°C`;
+            document.querySelector('.humidity').textContent = `${sensorData.humidity}%`;
+            document.querySelector('.status div:last-child').textContent = `Last Updated: ${sensorData.last_updated}`;
+
+            // Create main history chart
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            const historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: [
+                        {
+                            label: 'Temperature (°C)',
+                            data: temperatureData,
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        },
+                        {
+                            label: 'Humidity (%)',
+                            data: humidityData,
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '24-Hour History',
+                            font: { size: 16 }
+                        },
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                display: false // Hide x-axis time labels
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            suggestedMin: temperatureData.length ? Math.min(...temperatureData) - 5 : 0,
+                            suggestedMax: humidityData.length ? Math.max(...humidityData) + 5 : 100
+                        }
+                    }
+                }
+            });
+
+            // Create sparklines for temperature and humidity
+            createSparkline('temperature-trend', temperatureData.slice(-12), '#e74c3c');
+            createSparkline('humidity-trend', humidityData.slice(-12), '#3498db');
         }
-        
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            loadRecentReadings();
-        });
+
+        // Mini sparkline charts for the cards
+        function createSparkline(elementId, data, color) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 30;
+            document.getElementById(elementId).appendChild(canvas);
+
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 0, 30);
+            gradient.addColorStop(0, `${color}33`);
+            gradient.addColorStop(1, `${color}00`);
+
+            ctx.fillStyle = gradient;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+
+            const max = data.length ? Math.max(...data) : 1;
+            const min = data.length ? Math.min(...data) : 0;
+            const range = max - min || 1;
+
+            // Draw the sparkline
+            ctx.beginPath();
+            data.forEach((value, index) => {
+                const x = index * (canvas.width / (data.length - 1));
+                const y = canvas.height - ((value - min) / range) * canvas.height;
+                if (index === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+
+            ctx.stroke();
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Initialize the dashboard
+        initializeChart();
+
+        // Periodically update the dashboard
+        setInterval(initializeChart, 60000); // Update every 60 seconds
     </script>
 </body>
 </html>
