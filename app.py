@@ -31,11 +31,15 @@ humidity = 0.0
 last_updated = "No data received yet"
 
 # User model for cc_users table
+# User model for cc_users table
 class User(UserMixin, db.Model):
     __tablename__ = 'cc_users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)  # Increased to 256
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    first_name = db.Column(db.String(80), nullable=False)
+    last_name = db.Column(db.String(80), nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False)
     
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -49,9 +53,10 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 # Flask-Admin view for User
+# Flask-Admin view for User
 class UserAdmin(ModelView):
-    column_list = ['id', 'username']
-    form_columns = ['username', 'password_hash']
+    column_list = ['id', 'username', 'email', 'first_name', 'last_name']
+    form_columns = ['username', 'email', 'first_name', 'last_name', 'password_hash']
     
     def is_accessible(self):
         return current_user.is_authenticated
@@ -171,14 +176,22 @@ def user_management():
 @app.route('/api/user', methods=['POST'])
 def add_user():
     data = request.get_json()
-    if not data or not data.get('username') or not data.get('password'):
-        return jsonify({"message": "Username and password are required"}), 400
+    if not data or not data.get('username') or not data.get('password') or not data.get('email'):
+        return jsonify({"message": "Username, email and password are required"}), 400
     
     if User.query.filter_by(username=data['username']).first():
         return jsonify({"message": "Username already exists"}), 400
     
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({"message": "Email already exists"}), 400
+    
     try:
-        user = User(username=data['username'])
+        user = User(
+            username=data['username'],
+            email=data['email'],
+            first_name=data.get('first_name', ''),
+            last_name=data.get('last_name', '')
+        )
         user.set_password(data['password'])
         db.session.add(user)
         db.session.commit()
@@ -194,14 +207,20 @@ def edit_user(user_id):
     user = User.query.get_or_404(user_id)
     data = request.get_json()
     
-    if not data or not data.get('username'):
-        return jsonify({"message": "Username is required"}), 400
+    if not data or not data.get('username') or not data.get('email'):
+        return jsonify({"message": "Username and email are required"}), 400
     
     if User.query.filter_by(username=data['username']).first() and data['username'] != user.username:
         return jsonify({"message": "Username already exists"}), 400
     
+    if User.query.filter_by(email=data['email']).first() and data['email'] != user.email:
+        return jsonify({"message": "Email already exists"}), 400
+    
     try:
         user.username = data['username']
+        user.email = data['email']
+        user.first_name = data.get('first_name', user.first_name)
+        user.last_name = data.get('last_name', user.last_name)
         if data.get('password'):
             user.set_password(data['password'])
         db.session.commit()
