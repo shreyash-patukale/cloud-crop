@@ -163,3 +163,48 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()  # Create cc_users table if it doesn't exist
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+@app.route('/user-management/')
+def user_management():
+    users = User.query.all()
+    return render_template('user_management.html', users=users)
+
+@app.route('/api/user', methods=['POST'])
+def add_user():
+    data = request.get_json()
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({"message": "Username and password are required"}), 400
+    
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({"message": "Username already exists"}), 400
+    
+    user = User(username=data['username'])
+    user.set_password(data['password'])
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({"message": "User added successfully"}), 201
+
+@app.route('/api/user/<int:user_id>', methods=['PUT'])
+def edit_user(user_id):
+    user = User.query.get_or_404(user_id)
+    data = request.get_json()
+    
+    if not data or not data.get('username'):
+        return jsonify({"message": "Username is required"}), 400
+    
+    if User.query.filter_by(username=data['username']).first() and data['username'] != user.username:
+        return jsonify({"message": "Username already exists"}), 400
+    
+    user.username = data['username']
+    if data.get('password'):
+        user.set_password(data['password'])
+    
+    db.session.commit()
+    return jsonify({"message": "User updated successfully"}), 200
+
+@app.route('/api/user/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "User deleted successfully"}), 200
