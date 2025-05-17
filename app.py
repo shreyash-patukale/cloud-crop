@@ -123,7 +123,7 @@ def update_sensor_data():
     if data:
         temperature = data.get('temperature')
         humidity = data.get('humidity')
-        last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        last_updated = datetime.datetime.now().strftime("%Y-%m-d %H:%M:%S")
         
         sensor_data.append({
             'timestamp': time.time(),
@@ -161,8 +161,12 @@ def logout():
 
 @app.route('/user-management/')
 def user_management():
-    users = User.query.all()
-    return render_template('user_management.html', users=users)
+    try:
+        users = User.query.all()
+        return render_template('user_management.html', users=users)
+    except Exception as e:
+        app.logger.error(f"Error loading user management: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
 
 @app.route('/api/user', methods=['POST'])
 def add_user():
@@ -173,11 +177,17 @@ def add_user():
     if User.query.filter_by(username=data['username']).first():
         return jsonify({"message": "Username already exists"}), 400
     
-    user = User(username=data['username'])
-    user.set_password(data['password'])
-    db.session.add(user)
-    db.session.commit()
-    return jsonify({"message": "User added successfully"}), 201
+    try:
+        user = User(username=data['username'])
+        user.set_password(data['password'])
+        db.session.add(user)
+        db.session.commit()
+        app.logger.info(f"User {data['username']} created successfully")
+        return jsonify({"message": "User added successfully"}), 201
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error creating user: {str(e)}")
+        return jsonify({"message": f"Failed to create user: {str(e)}"}), 500
 
 @app.route('/api/user/<int:user_id>', methods=['PUT'])
 def edit_user(user_id):
@@ -190,19 +200,30 @@ def edit_user(user_id):
     if User.query.filter_by(username=data['username']).first() and data['username'] != user.username:
         return jsonify({"message": "Username already exists"}), 400
     
-    user.username = data['username']
-    if data.get('password'):
-        user.set_password(data['password'])
-    
-    db.session.commit()
-    return jsonify({"message": "User updated successfully"}), 200
+    try:
+        user.username = data['username']
+        if data.get('password'):
+            user.set_password(data['password'])
+        db.session.commit()
+        app.logger.info(f"User {user_id} updated successfully")
+        return jsonify({"message": "User updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating user: {str(e)}")
+        return jsonify({"message": f"Failed to update user: {str(e)}"}), 500
 
 @app.route('/api/user/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
     user = User.query.get_or_404(user_id)
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({"message": "User deleted successfully"}), 200
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        app.logger.info(f"User {user_id} deleted successfully")
+        return jsonify({"message": "User deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error deleting user: {str(e)}")
+        return jsonify({"message": f"Failed to delete user: {str(e)}"}), 500
 
 if __name__ == '__main__':
     with app.app_context():
