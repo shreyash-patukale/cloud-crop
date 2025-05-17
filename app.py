@@ -12,7 +12,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 
 # Flask configuration
-app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'  # Replace with a strong secret key
+app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://ccdb_6oq2_user:ssVlSjuLjLiH1Wrx50j8PqoNDSTKAkie@dpg-d0keg3ggjchc73abrbi0-a/ccdb_6oq2'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -159,11 +159,6 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # Create cc_users table if it doesn't exist
-    app.run(debug=True, host='0.0.0.0', port=5000)
-
 @app.route('/user-management/')
 def user_management():
     users = User.query.all()
@@ -208,3 +203,8 @@ def delete_user(user_id):
     db.session.delete(user)
     db.session.commit()
     return jsonify({"message": "User deleted successfully"}), 200
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True, host='0.0.0.0', port=5000)
