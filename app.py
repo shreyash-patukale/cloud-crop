@@ -28,9 +28,11 @@ sensor_data = deque(maxlen=1440)
 # Placeholder initial values
 temperature = 0.0
 humidity = 0.0
+water_temperature = 0.0  # Added for DS18B20
+air_temperature = 0.0    # Added for DHT11
+tds = 0.0               # Added for TDS sensor
 last_updated = "No data received yet"
 
-# User model for cc_users table
 # User model for cc_users table
 class User(UserMixin, db.Model):
     __tablename__ = 'cc_users'
@@ -53,7 +55,6 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 # Flask-Admin view for User
-# Flask-Admin view for User
 class UserAdmin(ModelView):
     column_list = ['id', 'username', 'email', 'first_name', 'last_name']
     form_columns = ['username', 'email', 'first_name', 'last_name', 'password_hash']
@@ -68,11 +69,17 @@ admin.add_view(UserAdmin(User, db.session))
 
 @app.route('/')
 def index():
-    return render_template('index.html', temperature=temperature, humidity=humidity, last_updated=last_updated)
+    return render_template('index.html', 
+                          temperature=temperature, 
+                          humidity=humidity,
+                          water_temperature=water_temperature,
+                          air_temperature=air_temperature,
+                          tds=tds,
+                          last_updated=last_updated)
 
 @app.route('/api/sensor')
 def get_sensor_data():
-    global temperature, humidity, last_updated
+    global temperature, humidity, water_temperature, air_temperature, tds, last_updated
     now = time.time()
     one_day_ago = now - 24 * 60 * 60
     recent_data = [
@@ -89,56 +96,90 @@ def get_sensor_data():
         
         temp_values = []
         hum_values = []
+        water_temp_values = []
+        air_temp_values = []
+        tds_values = []
         current_interval = current_time + interval
         
         for entry in recent_data:
             if entry['timestamp'] < current_interval:
-                temp_values.append(float(entry['temperature']))
-                hum_values.append(float(entry['humidity']))
+                temp_values.append(float(entry.get('temperature', 0)))
+                hum_values.append(float(entry.get('humidity', 0)))
+                water_temp_values.append(float(entry.get('water_temperature', 0)))
+                air_temp_values.append(float(entry.get('air_temperature', 0)))
+                tds_values.append(float(entry.get('tds', 0)))
             else:
-                if temp_values and hum_values:
+                if any([temp_values, hum_values, water_temp_values, air_temp_values, tds_values]):
                     aggregated_data.append({
                         'timestamp': current_interval - interval / 2,
-                        'temperature': round(statistics.mean(temp_values), 1),
-                        'humidity': round(statistics.mean(hum_values), 1)
+                        'temperature': round(statistics.mean(temp_values) if temp_values else 0, 1),
+                        'humidity': round(statistics.mean(hum_values) if hum_values else 0, 1),
+                        'water_temperature': round(statistics.mean(water_temp_values) if water_temp_values else 0, 1),
+                        'air_temperature': round(statistics.mean(air_temp_values) if air_temp_values else 0, 1),
+                        'tds': round(statistics.mean(tds_values) if tds_values else 0, 1)
                     })
-                temp_values = [float(entry['temperature'])]
-                hum_values = [float(entry['humidity'])]
+                temp_values = [float(entry.get('temperature', 0))]
+                hum_values = [float(entry.get('humidity', 0))]
+                water_temp_values = [float(entry.get('water_temperature', 0))]
+                air_temp_values = [float(entry.get('air_temperature', 0))]
+                tds_values = [float(entry.get('tds', 0))]
                 current_interval += interval
         
-        if temp_values and hum_values:
+        if any([temp_values, hum_values, water_temp_values, air_temp_values, tds_values]):
             aggregated_data.append({
                 'timestamp': current_interval - interval / 2,
-                'temperature': round(statistics.mean(temp_values), 1),
-                'humidity': round(statistics.mean(hum_values), 1)
+                'temperature': round(statistics.mean(temp_values) if temp_values else 0, 1),
+                'humidity': round(statistics.mean(hum_values) if hum_values else 0, 1),
+                'water_temperature': round(statistics.mean(water_temp_values) if water_temp_values else 0, 1),
+                'air_temperature': round(statistics.mean(air_temp_values) if air_temp_values else 0, 1),
+                'tds': round(statistics.mean(tds_values) if tds_values else 0, 1)
             })
 
     return jsonify({
         "temperature": temperature,
         "humidity": humidity,
+        "water_temperature": water_temperature,
+        "air_temperature": air_temperature,
+        "tds": tds,
         "last_updated": last_updated,
         "history": aggregated_data
     })
 
 @app.route('/update_sensor', methods=['POST'])
 def update_sensor_data():
-    global temperature, humidity, last_updated
-    data = request.get_json()
-
-    if data:
-        temperature = data.get('temperature')
-        humidity = data.get('humidity')
-        last_updated = datetime.datetime.now().strftime("%Y-%m-d %H:%M:%S")
+    global temperature, humidity, water_temperature, air_temperature, tds, last_updated
+    
+    try:
+        data = request.get_json()
         
-        sensor_data.append({
-            'timestamp': time.time(),
-            'temperature': temperature,
-            'humidity': humidity
-        })
+        if data:
+            # Handle legacy and new sensor data formats
+            temperature = data.get('temperature', data.get('water_temperature', 0))
+            humidity = data.get('humidity', 0)
+            
+            # Store new sensor values if available
+            water_temperature = data.get('water_temperature', data.get('temperature', 0))
+            air_temperature = data.get('air_temperature', data.get('temperature', 0))
+            tds = data.get('tds', 0)
+            
+            last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Store all data in history
+            sensor_data.append({
+                'timestamp': time.time(),
+                'temperature': temperature,
+                'humidity': humidity,
+                'water_temperature': water_temperature,
+                'air_temperature': air_temperature,
+                'tds': tds
+            })
 
-        return jsonify({"message": "Data updated successfully!"}), 200
-    else:
-        return jsonify({"message": "Invalid data"}), 400
+            return jsonify({"message": "Data updated successfully!"}), 200
+    except Exception as e:
+        app.logger.error(f"Error updating sensor data: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 400
+    
+    return jsonify({"message": "Invalid data"}), 400
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
