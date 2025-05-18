@@ -1,291 +1,389 @@
-from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
-import datetime
-from collections import deque
-import time
-import statistics
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from flask_admin import Admin
-from flask_admin.contrib.sqla import ModelView
-from werkzeug.security import generate_password_hash, check_password_hash
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DHT22 Sensor Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2ecc71;
+            --background-color: #f5f7fa;
+            --card-color: #ffffff;
+            --text-color: #2c3e50;
+            --border-radius: 12px;
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
 
-app = Flask(__name__)
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }
 
-# Flask configuration
-app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://ccdb_6oq2_user:ssVlSjuLjLiH1Wrx50j8PqoNDSTKAkie@dpg-d0keg3ggjchc73abrbi0-a/ccdb_6oq2'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+        nav {
+            background-color: var(--card-color);
+            padding: 15px 20px;
+            box-shadow: var(--shadow);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-# Initialize extensions
-db = SQLAlchemy(app)
-login_manager = LoginManager(app)
-login_manager.login_view = 'login'
-admin = Admin(app, name='Cloud Crop Admin', template_mode='bootstrap4')
+        .nav-left {
+            display: flex;
+            align-items: center;
+        }
 
-# Initialize deque for sensor data (max 24 hours * 60 minutes = 1440 entries)
-sensor_data = deque(maxlen=1440)
+        .nav-right {
+            display: flex;
+            align-items: center;
+        }
 
-# Placeholder initial values
-temperature = 0.0
-humidity = 0.0
-water_temperature = 0.0  # Added for DS18B20
-air_temperature = 0.0    # Added for DHT11
-tds = 0.0               # Added for TDS sensor
-last_updated = "No data received yet"
+        .nav-button {
+            color: var(--text-color);
+            text-decoration: none;
+            padding: 10px 15px;
+            margin: 0 5px;
+            border-radius: 8px;
+            transition: background-color 0.3s, color 0.3s;
+            font-weight: 500;
+        }
 
-# User model for cc_users table
-class User(UserMixin, db.Model):
-    __tablename__ = 'cc_users'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    first_name = db.Column(db.String(80), nullable=False)
-    last_name = db.Column(db.String(80), nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)
-    
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-    
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        .nav-button:hover {
+            background-color: var(--primary-color);
+            color: white;
+        }
 
-# Flask-Login user loader
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
+        .login-button {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
 
-# Flask-Admin view for User
-class UserAdmin(ModelView):
-    column_list = ['id', 'username', 'email', 'first_name', 'last_name']
-    form_columns = ['username', 'email', 'first_name', 'last_name', 'password_hash']
-    
-    def is_accessible(self):
-        return current_user.is_authenticated
-    
-    def inaccessible_callback(self, name, **kwargs):
-        return redirect(url_for('login'))
+        .login-button:hover {
+            background-color: #2980b9;
+        }
 
-admin.add_view(UserAdmin(User, db.session))
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 80px 20px 20px; /* Adjusted for topbar height */
+        }
 
-@app.route('/')
-def index():
-    return render_template('index.html', 
-                          temperature=temperature, 
-                          humidity=humidity,
-                          water_temperature=water_temperature,
-                          air_temperature=air_temperature,
-                          tds=tds,
-                          last_updated=last_updated)
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+        }
 
-@app.route('/api/sensor')
-def get_sensor_data():
-    global temperature, humidity, water_temperature, air_temperature, tds, last_updated
-    now = time.time()
-    one_day_ago = now - 24 * 60 * 60
-    recent_data = [
-        entry for entry in sensor_data
-        if entry['timestamp'] >= one_day_ago
-    ]
+        h1 {
+            margin: 0;
+            font-size: 28px;
+        }
 
-    interval = 5 * 60
-    aggregated_data = []
-    if recent_data:
-        start_time = recent_data[0]['timestamp']
-        end_time = recent_data[-1]['timestamp']
-        current_time = start_time - (start_time % interval)
-        
-        temp_values = []
-        hum_values = []
-        water_temp_values = []
-        air_temp_values = []
-        tds_values = []
-        current_interval = current_time + interval
-        
-        for entry in recent_data:
-            if entry['timestamp'] < current_interval:
-                temp_values.append(float(entry.get('temperature', 0)))
-                hum_values.append(float(entry.get('humidity', 0)))
-                water_temp_values.append(float(entry.get('water_temperature', 0)))
-                air_temp_values.append(float(entry.get('air_temperature', 0)))
-                tds_values.append(float(entry.get('tds', 0)))
-            else:
-                if any([temp_values, hum_values, water_temp_values, air_temp_values, tds_values]):
-                    aggregated_data.append({
-                        'timestamp': current_interval - interval / 2,
-                        'temperature': round(statistics.mean(temp_values) if temp_values else 0, 1),
-                        'humidity': round(statistics.mean(hum_values) if hum_values else 0, 1),
-                        'water_temperature': round(statistics.mean(water_temp_values) if water_temp_values else 0, 1),
-                        'air_temperature': round(statistics.mean(air_temp_values) if air_temp_values else 0, 1),
-                        'tds': round(statistics.mean(tds_values) if tds_values else 0, 1)
-                    })
-                temp_values = [float(entry.get('temperature', 0))]
-                hum_values = [float(entry.get('humidity', 0))]
-                water_temp_values = [float(entry.get('water_temperature', 0))]
-                air_temp_values = [float(entry.get('air_temperature', 0))]
-                tds_values = [float(entry.get('tds', 0))]
-                current_interval += interval
-        
-        if any([temp_values, hum_values, water_temp_values, air_temp_values, tds_values]):
-            aggregated_data.append({
-                'timestamp': current_interval - interval / 2,
-                'temperature': round(statistics.mean(temp_values) if temp_values else 0, 1),
-                'humidity': round(statistics.mean(hum_values) if hum_values else 0, 1),
-                'water_temperature': round(statistics.mean(water_temp_values) if water_temp_values else 0, 1),
-                'air_temperature': round(statistics.mean(air_temp_values) if air_temp_values else 0, 1),
-                'tds': round(statistics.mean(tds_values) if tds_values else 0, 1)
-            })
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
 
-    return jsonify({
-        "temperature": temperature,
-        "humidity": humidity,
-        "water_temperature": water_temperature,
-        "air_temperature": air_temperature,
-        "tds": tds,
-        "last_updated": last_updated,
-        "history": aggregated_data
-    })
+        .card {
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
 
-@app.route('/update_sensor', methods=['POST'])
-def update_sensor_data():
-    global temperature, humidity, water_temperature, air_temperature, tds, last_updated
-    
-    try:
-        data = request.get_json()
-        
-        if data:
-            # Handle legacy and new sensor data formats
-            temperature = data.get('temperature', data.get('water_temperature', 0))
-            humidity = data.get('humidity', 0)
-            
-            # Store new sensor values if available
-            water_temperature = data.get('water_temperature', data.get('temperature', 0))
-            air_temperature = data.get('air_temperature', data.get('temperature', 0))
-            tds = data.get('tds', 0)
-            
-            last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Store all data in history
-            sensor_data.append({
-                'timestamp': time.time(),
-                'temperature': temperature,
-                'humidity': humidity,
-                'water_temperature': water_temperature,
-                'air_temperature': air_temperature,
-                'tds': tds
-            })
+        .card-title {
+            color: var(--text-color);
+            font-size: 18px;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
 
-            return jsonify({"message": "Data updated successfully!"}), 200
-    except Exception as e:
-        app.logger.error(f"Error updating sensor data: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 400
-    
-    return jsonify({"message": "Invalid data"}), 400
+        .card-value {
+            font-size: 36px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
-    
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
-        
-        if user and user.check_password(password):
-            login_user(user)
-            return redirect(url_for('index'))
-        else:
-            flash('Invalid username or password')
-    
-    return render_template('login.html')
+        .temperature {
+            color: #e74c3c;
+        }
 
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('index'))
+        .humidity {
+            color: var(--primary-color);
+        }
 
-@app.route('/user-management/')
-def user_management():
-    try:
-        users = User.query.all()
-        return render_template('user_management.html', users=users)
-    except Exception as e:
-        app.logger.error(f"Error loading user management: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 500
+        .chart-container {
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
 
-@app.route('/api/user', methods=['POST'])
-def add_user():
-    data = request.get_json()
-    if not data or not data.get('username') or not data.get('password') or not data.get('email'):
-        return jsonify({"message": "Username, email and password are required"}), 400
-    
-    if User.query.filter_by(username=data['username']).first():
-        return jsonify({"message": "Username already exists"}), 400
-    
-    if User.query.filter_by(email=data['email']).first():
-        return jsonify({"message": "Email already exists"}), 400
-    
-    try:
-        user = User(
-            username=data['username'],
-            email=data['email'],
-            first_name=data.get('first_name', ''),
-            last_name=data.get('last_name', '')
-        )
-        user.set_password(data['password'])
-        db.session.add(user)
-        db.session.commit()
-        app.logger.info(f"User {data['username']} created successfully")
-        return jsonify({"message": "User added successfully"}), 201
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error creating user: {str(e)}")
-        return jsonify({"message": f"Failed to create user: {str(e)}"}), 500
+        .status {
+            display: flex;
+            justify-content: space-between;
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            padding: 15px 20px;
+            box-shadow: var(--shadow);
+            align-items: center;
+        }
 
-@app.route('/api/user/<int:user_id>', methods=['PUT'])
-def edit_user(user_id):
-    user = User.query.get_or_404(user_id)
-    data = request.get_json()
-    
-    if not data or not data.get('username') or not data.get('email'):
-        return jsonify({"message": "Username and email are required"}), 400
-    
-    if User.query.filter_by(username=data['username']).first() and data['username'] != user.username:
-        return jsonify({"message": "Username already exists"}), 400
-    
-    if User.query.filter_by(email=data['email']).first() and data['email'] != user.email:
-        return jsonify({"message": "Email already exists"}), 400
-    
-    try:
-        user.username = data['username']
-        user.email = data['email']
-        user.first_name = data.get('first_name', user.first_name)
-        user.last_name = data.get('last_name', user.last_name)
-        if data.get('password'):
-            user.set_password(data['password'])
-        db.session.commit()
-        app.logger.info(f"User {user_id} updated successfully")
-        return jsonify({"message": "User updated successfully"}), 200
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error updating user: {str(e)}")
-        return jsonify({"message": f"Failed to update user: {str(e)}"}), 500
+        .status-indicator {
+            display: flex;
+            align-items: center;
+        }
 
-@app.route('/api/user/<int:user_id>', methods=['DELETE'])
-def delete_user(user_id):
-    user = User.query.get_or_404(user_id)
-    try:
-        db.session.delete(user)
-        db.session.commit()
-        app.logger.info(f"User {user_id} deleted successfully")
-        return jsonify({"message": "User deleted successfully"}), 200
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error deleting user: {str(e)}")
-        return jsonify({"message": f"Failed to delete user: {str(e)}"}), 500
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background-color: #2ecc71;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+        footer {
+            text-align: center;
+            padding: 15px;
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            nav {
+                flex-direction: column;
+                padding: 10px;
+            }
+
+            .nav-left, .nav-right {
+                margin: 5px 0;
+            }
+
+            .nav-button, .login-button {
+                margin: 5px;
+                padding: 8px 12px;
+            }
+
+            .container {
+                padding-top: 120px; /* Adjusted for stacked nav */
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-left">
+            <a href="/" class="nav-button">Home</a>
+            <a href="/user-management/" class="nav-button">Settings</a>
+            <a href="#" class="nav-button">Reports</a>
+        </div>
+        <div class="nav-right">
+            <a href="/login" class="login-button">Login</a>
+        </div>
+    </nav>
+    <div class="container">
+        <header>
+            <h1>Hydroponics Dashboard</h1>
+            <p>Real-time water temperature and humidity monitoring</p>
+        </header>
+
+        <div class="dashboard">
+            <div class="card">
+                <div class="card-title">Water Temperature</div>
+                <div class="card-value temperature">{{ temperature }}°C</div>
+                <div id="temperature-trend"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Humidity</div>
+                <div class="card-value humidity">{{ humidity }}%</div>
+                <div id="humidity-trend"></div>
+            </div>
+        </div>
+
+        <div class="status">
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span>Sensor Online</span>
+            </div>
+            <div>Last Updated: {{ last_updated }}</div>
+        </div>
+        <div class="chart-container">
+            <canvas id="historyChart"></canvas>
+        </div>
+        <footer>
+            <p>Cloud Crop</p>
+        </footer>
+    </div>
+
+    <script>
+        // Function to fetch sensor data
+        async function fetchSensorData() {
+            try {
+                const response = await fetch('/api/sensor');
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Error fetching sensor data:', error);
+                return null;
+            }
+        }
+
+        // Initialize chart with historical data
+        async function initializeChart() {
+            const sensorData = await fetchSensorData();
+            if (!sensorData) return;
+
+            const timestamps = [];
+            const temperatureData = [];
+            const humidityData = [];
+
+            // Process historical data
+            sensorData.history.forEach(entry => {
+                const date = new Date(entry.timestamp * 1000); // Convert Unix timestamp to JS Date
+                timestamps.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                temperatureData.push(parseFloat(entry.temperature).toFixed(1));
+                humidityData.push(parseFloat(entry.humidity).toFixed(1));
+            });
+
+            // Update card values
+            document.querySelector('.temperature').textContent = `${sensorData.temperature}°C`;
+            document.querySelector('.humidity').textContent = `${sensorData.humidity}%`;
+            document.querySelector('.status div:last-child').textContent = `Last Updated: ${sensorData.last_updated}`;
+
+            // Create main history chart
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            const historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: [
+                        {
+                            label: 'Temperature (°C)',
+                            data: temperatureData,
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        },
+                        {
+                            label: 'Humidity (%)',
+                            data: humidityData,
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '24-Hour History',
+                            font: { size: 16 }
+                        },
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                display: false // Hide x-axis time labels
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            suggestedMin: temperatureData.length ? Math.min(...temperatureData) - 5 : 0,
+                            suggestedMax: humidityData.length ? Math.max(...humidityData) + 5 : 100
+                        }
+                    }
+                }
+            });
+
+            // Create sparklines for temperature and humidity
+            createSparkline('temperature-trend', temperatureData.slice(-12), '#e74c3c');
+            createSparkline('humidity-trend', humidityData.slice(-12), '#3498db');
+        }
+
+        // Mini sparkline charts for the cards
+        function createSparkline(elementId, data, color) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 30;
+            document.getElementById(elementId).appendChild(canvas);
+
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 0, 30);
+            gradient.addColorStop(0, `${color}33`);
+            gradient.addColorStop(1, `${color}00`);
+
+            ctx.fillStyle = gradient;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+
+            const max = data.length ? Math.max(...data) : 1;
+            const min = data.length ? Math.min(...data) : 0;
+            const range = max - min || 1;
+
+            // Draw the sparkline
+            ctx.beginPath();
+            data.forEach((value, index) => {
+                const x = index * (canvas.width / (data.length - 1));
+                const y = canvas.height - ((value - min) / range) * canvas.height;
+                if (index === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+
+            ctx.stroke();
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Initialize the dashboard
+        initializeChart();
+
+        // Periodically update the dashboard
+        setInterval(initializeChart, 60000); // Update every 60 seconds
+    </script>
+</body>
+</html>
