@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DHT22 Sensor Dashboard</title>
+    <title>Hydroponics Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <style>
         :root {
@@ -100,7 +100,7 @@
 
         .dashboard {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 20px;
         }
@@ -128,12 +128,20 @@
             margin: 10px 0;
         }
 
-        .temperature {
+        .water-temperature {
             color: #e74c3c;
+        }
+
+        .air-temperature {
+            color: #f39c12;
         }
 
         .humidity {
             color: var(--primary-color);
+        }
+
+        .tds {
+            color: #8e44ad;
         }
 
         .chart-container {
@@ -213,19 +221,29 @@
     <div class="container">
         <header>
             <h1>Hydroponics Dashboard</h1>
-            <p>Real-time water temperature and humidity monitoring</p>
+            <p>Real-time sensor monitoring for hydroponics system</p>
         </header>
 
         <div class="dashboard">
             <div class="card">
                 <div class="card-title">Water Temperature</div>
-                <div class="card-value temperature">{{ temperature }}°C</div>
-                <div id="temperature-trend"></div>
+                <div class="card-value water-temperature">{{ water_temperature }}°C</div>
+                <div id="water-temperature-trend"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Air Temperature</div>
+                <div class="card-value air-temperature">{{ air_temperature }}°C</div>
+                <div id="air-temperature-trend"></div>
             </div>
             <div class="card">
                 <div class="card-title">Humidity</div>
                 <div class="card-value humidity">{{ humidity }}%</div>
                 <div id="humidity-trend"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">TDS</div>
+                <div class="card-value tds">{{ tds }} ppm</div>
+                <div id="tds-trend"></div>
             </div>
         </div>
 
@@ -263,20 +281,26 @@
             if (!sensorData) return;
 
             const timestamps = [];
-            const temperatureData = [];
+            const waterTemperatureData = [];
+            const airTemperatureData = [];
             const humidityData = [];
+            const tdsData = [];
 
             // Process historical data
             sensorData.history.forEach(entry => {
                 const date = new Date(entry.timestamp * 1000); // Convert Unix timestamp to JS Date
                 timestamps.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-                temperatureData.push(parseFloat(entry.temperature).toFixed(1));
+                waterTemperatureData.push(parseFloat(entry.water_temperature).toFixed(1));
+                airTemperatureData.push(parseFloat(entry.air_temperature).toFixed(1));
                 humidityData.push(parseFloat(entry.humidity).toFixed(1));
+                tdsData.push(parseFloat(entry.tds).toFixed(1));
             });
 
             // Update card values
-            document.querySelector('.temperature').textContent = `${sensorData.temperature}°C`;
+            document.querySelector('.water-temperature').textContent = `${sensorData.water_temperature}°C`;
+            document.querySelector('.air-temperature').textContent = `${sensorData.air_temperature}°C`;
             document.querySelector('.humidity').textContent = `${sensorData.humidity}%`;
+            document.querySelector('.tds').textContent = `${sensorData.tds} ppm`;
             document.querySelector('.status div:last-child').textContent = `Last Updated: ${sensorData.last_updated}`;
 
             // Create main history chart
@@ -287,10 +311,19 @@
                     labels: timestamps,
                     datasets: [
                         {
-                            label: 'Temperature (°C)',
-                            data: temperatureData,
+                            label: 'Water Temperature (°C)',
+                            data: waterTemperatureData,
                             borderColor: '#e74c3c',
                             backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        },
+                        {
+                            label: 'Air Temperature (°C)',
+                            data: airTemperatureData,
+                            borderColor: '#f39c12',
+                            backgroundColor: 'rgba(243, 156, 18, 0.1)',
                             borderWidth: 2,
                             tension: 0.3,
                             fill: true
@@ -303,6 +336,16 @@
                             borderWidth: 2,
                             tension: 0.3,
                             fill: true
+                        },
+                        {
+                            label: 'TDS (ppm)',
+                            data: tdsData,
+                            borderColor: '#8e44ad',
+                            backgroundColor: 'rgba(142, 68, 173, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true,
+                            hidden: true  // Hide TDS by default as it might be on a different scale
                         }
                     ]
                 },
@@ -323,29 +366,52 @@
                     scales: {
                         x: {
                             ticks: {
-                                display: false // Hide x-axis time labels
+                                autoSkip: true,
+                                maxTicksLimit: 12,
+                                maxRotation: 0
                             }
                         },
                         y: {
                             beginAtZero: false,
-                            suggestedMin: temperatureData.length ? Math.min(...temperatureData) - 5 : 0,
-                            suggestedMax: humidityData.length ? Math.max(...humidityData) + 5 : 100
+                            suggestedMin: Math.min(
+                                ...[...waterTemperatureData, ...airTemperatureData, ...humidityData].map(Number)
+                            ) - 5,
+                            suggestedMax: Math.max(
+                                ...[...waterTemperatureData, ...airTemperatureData, ...humidityData].map(Number)
+                            ) + 5
+                        },
+                        y1: {
+                            position: 'right',
+                            beginAtZero: true,
+                            grid: {
+                                drawOnChartArea: false
+                            },
+                            title: {
+                                display: true,
+                                text: 'TDS (ppm)'
+                            }
                         }
                     }
                 }
             });
 
-            // Create sparklines for temperature and humidity
-            createSparkline('temperature-trend', temperatureData.slice(-12), '#e74c3c');
+            // Create sparklines for all metrics
+            createSparkline('water-temperature-trend', waterTemperatureData.slice(-12), '#e74c3c');
+            createSparkline('air-temperature-trend', airTemperatureData.slice(-12), '#f39c12');
             createSparkline('humidity-trend', humidityData.slice(-12), '#3498db');
+            createSparkline('tds-trend', tdsData.slice(-12), '#8e44ad');
         }
 
         // Mini sparkline charts for the cards
         function createSparkline(elementId, data, color) {
+            const element = document.getElementById(elementId);
+            // Clear previous sparkline if it exists
+            element.innerHTML = '';
+            
             const canvas = document.createElement('canvas');
             canvas.width = 100;
             canvas.height = 30;
-            document.getElementById(elementId).appendChild(canvas);
+            element.appendChild(canvas);
 
             const ctx = canvas.getContext('2d');
             const gradient = ctx.createLinearGradient(0, 0, 0, 30);
@@ -356,14 +422,15 @@
             ctx.strokeStyle = color;
             ctx.lineWidth = 1;
 
-            const max = data.length ? Math.max(...data) : 1;
-            const min = data.length ? Math.min(...data) : 0;
+            const values = data.map(Number);
+            const max = values.length ? Math.max(...values) : 1;
+            const min = values.length ? Math.min(...values) : 0;
             const range = max - min || 1;
 
             // Draw the sparkline
             ctx.beginPath();
-            data.forEach((value, index) => {
-                const x = index * (canvas.width / (data.length - 1));
+            values.forEach((value, index) => {
+                const x = index * (canvas.width / (values.length - 1));
                 const y = canvas.height - ((value - min) / range) * canvas.height;
                 if (index === 0) {
                     ctx.moveTo(x, y);
@@ -384,6 +451,35 @@
 
         // Periodically update the dashboard
         setInterval(initializeChart, 60000); // Update every 60 seconds
+        
+        // Add event listener to check if the sensor is online
+        function checkSensorStatus() {
+            const lastUpdated = document.querySelector('.status div:last-child').textContent;
+            const statusDot = document.querySelector('.status-dot');
+            const statusText = document.querySelector('.status-indicator span');
+            
+            if (lastUpdated === "Last Updated: No data received yet") {
+                statusDot.style.backgroundColor = "#e74c3c";
+                statusText.textContent = "Sensor Offline";
+            } else {
+                const updatedTime = lastUpdated.replace("Last Updated: ", "");
+                const lastUpdate = new Date(updatedTime);
+                const currentTime = new Date();
+                
+                // If last update was more than 5 minutes ago, consider the sensor offline
+                if ((currentTime - lastUpdate) > 5 * 60 * 1000) {
+                    statusDot.style.backgroundColor = "#e74c3c";
+                    statusText.textContent = "Sensor Offline";
+                } else {
+                    statusDot.style.backgroundColor = "#2ecc71";
+                    statusText.textContent = "Sensor Online";
+                }
+            }
+        }
+        
+        // Check sensor status every minute
+        setInterval(checkSensorStatus, 60000);
+        checkSensorStatus(); // Initial check
     </script>
 </body>
 </html>
