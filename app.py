@@ -290,83 +290,54 @@ if __name__ == '__main__':
         db.create_all()
     app.run(debug=True, host='0.0.0.0', port=5000)
 
-# Add this import at the top with other imports
-from flask import render_template_string
+# Add these variables after your existing global variables
+light_status = "OFF"  # Default light status (ON/OFF)
+light_state = False   # Boolean representation of light status
+light_schedule = "6AM-9PM"  # Default schedule
+light_last_updated = "No data received yet"
+light_device_id = "Unknown"
 
-# Add this new model after the User model
-class LightStatus(db.Model):
-    __tablename__ = 'light_status'
-    id = db.Column(db.Integer, primary_key=True)
-    light_status = db.Column(db.String(10), nullable=False)
-    light_state = db.Column(db.Boolean, nullable=False)
-    timestamp = db.Column(db.String(30), nullable=False)
-    device_id = db.Column(db.String(50), nullable=False)
-    schedule = db.Column(db.String(20), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+# Add this new route to display light data
+@app.route('/lighting')
+def lighting():
+    return render_template('lighting.html',
+                          light_status=light_status,
+                          light_state=light_state,
+                          light_schedule=light_schedule,
+                          light_last_updated=light_last_updated,
+                          light_device_id=light_device_id)
 
-# Add this admin view after the UserAdmin class
-class LightStatusAdmin(ModelView):
-    column_list = ['id', 'light_status', 'timestamp', 'device_id', 'schedule', 'created_at']
-    form_columns = ['light_status', 'light_state', 'timestamp', 'device_id', 'schedule']
-    
-    def is_accessible(self):
-        return current_user.is_authenticated
-    
-    def inaccessible_callback(self, name, **kwargs):
-        return redirect(url_for('login'))
-
-# Add this to the admin views (after admin.add_view(UserAdmin...))
-admin.add_view(LightStatusAdmin(LightStatus, db.session))
-
-# Add these new routes after your existing routes
-@app.route('/light_status')
-@login_required
-def light_status():
-    try:
-        # Get the latest light status
-        latest_status = LightStatus.query.order_by(LightStatus.created_at.desc()).first()
-        # Get last 24 hours of status changes
-        one_day_ago = datetime.datetime.now() - datetime.timedelta(days=1)
-        status_history = LightStatus.query.filter(
-            LightStatus.created_at >= one_day_ago
-        ).order_by(LightStatus.created_at.desc()).all()
-        
-        return render_template('light_status.html', 
-                            latest_status=latest_status,
-                            history=status_history)
-    except Exception as e:
-        app.logger.error(f"Error loading light status: {str(e)}")
-        flash(f"Error loading light status: {str(e)}")
-        return redirect(url_for('index'))
-
+# Add this new endpoint for the ESP32 to update light status
 @app.route('/update_light_status', methods=['POST'])
 def update_light_status():
+    global light_status, light_state, light_schedule, light_last_updated, light_device_id
+    
     try:
         data = request.get_json()
         
-        if not data or improvvisado data.get('light_status') or not data.get('timestamp'):
-            return jsonify({"message": "Missing required fields"}), 400
-        
-        # Create new light status entry
-        status = LightStatus(
-            light_status=data['light_status'],
-            light_state=data['light_state'],
-            timestamp=data['timestamp'],
-            device_id=data.get('device_id', 'Unknown'),
-            schedule=data.get('schedule', 'Unknown')
-        )
-        
-        db.session.add(status)
-        db.session.commit()
-        
-        return jsonify({"message": "Light status updated successfully"}), 200
+        if data:
+            light_status = data.get('light_status', "OFF")
+            light_state = data.get('light_state', False)
+            light_schedule = data.get('schedule', "Unknown")
+            light_device_id = data.get('device_id', "Unknown")
+            light_last_updated = data.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            
+            return jsonify({"message": "Light status updated successfully!"}), 200
     except Exception as e:
-        db.session.rollback()
         app.logger.error(f"Error updating light status: {str(e)}")
         return jsonify({"message": f"Error: {str(e)}"}), 400
+    
+    return jsonify({"message": "Invalid data"}), 400
 
-# Add this to the __main__ block to create the new table
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# Add this route to get light status for AJAX updates
+@app.route('/api/light')
+def get_light_data():
+    global light_status, light_state, light_schedule, light_last_updated, light_device_id
+    
+    return jsonify({
+        "light_status": light_status,
+        "light_state": light_state,
+        "light_schedule": light_schedule,
+        "light_last_updated": light_last_updated,
+        "light_device_id": light_device_id
+    })
