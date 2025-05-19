@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -91,6 +91,9 @@
                         <li class="nav-item">
                             <a class="nav-link active" href="/lighting">Lighting</a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/user-management">User Management</a>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -102,13 +105,12 @@
                     <div class="card-body text-center">
                         <h2 class="card-title">Grow Light Control System</h2>
                         <div class="display-1 mb-4">
-                            <i id="light-icon" class="fas fa-lightbulb" 
-                               ng-class="{'light-on': light_state, 'light-off': !light_state}"></i>
+                            <i id="light-icon" class="fas fa-lightbulb {{ 'light-on' if light_state else 'light-off' }}"></i>
                         </div>
-                        <div id="light-status-indicator" class="badge mb-3 px-3 py-2 fs-6">
-                            <span id="status-text">Loading...</span>
+                        <div id="light-status-indicator" class="badge mb-3 px-3 py-2 fs-6 {{ 'status-badge-on' if light_state else 'status-badge-off' }}">
+                            <span id="status-text">{{ 'ON' if light_state else 'OFF' }}</span>
                         </div>
-                        <p class="card-text" id="realtime-status">Current Status: Loading...</p>
+                        <p class="card-text" id="realtime-status">Current Status: Light is {{ 'ON' if light_state else 'OFF' }}</p>
                         <p class="text-muted">Last Updated: <span id="last-updated">{{ light_last_updated }}</span></p>
                     </div>
                 </div>
