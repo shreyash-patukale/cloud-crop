@@ -290,6 +290,18 @@ if __name__ == '__main__':
         db.create_all()
     app.run(debug=True, host='0.0.0.0', port=5000)
 
+# Add this at the beginning of the file
+import os
+
+# Modify database configuration to use SQLite in development
+if 'DATABASE_URL' in os.environ:
+    # Use PostgreSQL in production
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+else:
+    # Use SQLite in development
+    basedir = os.path.abspath(os.path.dirname(__file__))
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
+
 # Add these variables after your existing global variables
 light_status = "OFF"  # Default light status (ON/OFF)
 light_state = False   # Boolean representation of light status
