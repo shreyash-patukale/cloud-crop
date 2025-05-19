@@ -9,19 +9,6 @@ from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# Add this near the top with other imports
-from datetime import datetime
-
-# Add this with other global variables
-light_status_data = deque(maxlen=1440)  # Store light status history (24 hours)
-latest_light_status = {
-    "light_status": "Unknown",
-    "light_state": False,
-    "timestamp": "No data received yet",
-    "device_id": "Unknown",
-    "schedule": "Unknown"
-}
-
 app = Flask(__name__)
 
 # Flask configuration
