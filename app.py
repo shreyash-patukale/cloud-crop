@@ -310,7 +310,7 @@ light_last_updated = "No data received yet"
 light_device_id = "Unknown"
 
 # Add this new route to display light data
-@app.route('/lighting')
+@app.route('/lighting/')
 def lighting():
     return render_template('lighting.html',
                           light_status=light_status,
