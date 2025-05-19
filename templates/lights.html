@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Light Status</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-card {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .status-row:last-child {
+            border-bottom: none;
+        }
+        .status-label {
+            font-weight: bold;
+            color: #555;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button.off {
+            background-color: #f44336;
+        }
+        button.auto {
+            background-color: #2196F3;
+        }
+        .light-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        .on {
+            background-color: #FFEB3B;
+            box-shadow: 0 0 10px #FFC107;
+        }
+        .off {
+            background-color: #9E9E9E;
+        }
+        .updated {
+            text-align: center;
+            color: #757575;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Light Status</h1>
+        
+        <div class="status-card">
+            <div class="status-row">
+                <span class="status-label">Light State:</span>
+                <span>
+                    <span class="light-indicator {{ 'on' if relay_state == 'ON' else 'off' }}"></span>
+                    {{ "ON" if relay_state == "ON" else "OFF" }}
+                </span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Mode:</span>
+                <span>{{ "Manual Override" if manual_override else "Automatic" }}</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Scheduled:</span>
+                <span>{{ "Yes" if light_scheduled else "No" }}</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Light Detected:</span>
+                <span>{{ "Yes" if light_detected else "No" }}</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">LDR Value:</span>
+                <span>{{ ldr_value }} (Threshold: {{ light_threshold }})</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="turnOn">Turn Light ON</button>
+            <button id="turnOff" class="off">Turn Light OFF</button>
+            <button id="autoMode" class="auto">Auto Mode</button>
+        </div>
+        
+        <p class="updated">Last updated: {{ last_updated }}</p>
+    </div>
+
+    <script>
+        // Function to refresh the status data
+        function refreshStatus() {
+            fetch('/api/light_status')
+                .then(response => response.json())
+                .then(data => {
+                    const lightIndicator = document.querySelector('.light-indicator');
+                    if (data.is_on) {
+                        lightIndicator.classList.add('on');
+                        lightIndicator.classList.remove('off');
+                        document.querySelector('.status-row:first-child span:last-child').innerHTML = 
+                            '<span class="light-indicator on"></span>ON';
+                    } else {
+                        lightIndicator.classList.add('off');
+                        lightIndicator.classList.remove('on');
+                        document.querySelector('.status-row:first-child span:last-child').innerHTML = 
+                            '<span class="light-indicator off"></span>OFF';
+                    }
+                    
+                    document.querySelector('.status-row:nth-child(2) span:last-child').textContent = 
+                        data.manual_override ? 'Manual Override' : 'Automatic';
+                    document.querySelector('.status-row:nth-child(3) span:last-child').textContent = 
+                        data.scheduled ? 'Yes' : 'No';
+                    document.querySelector('.status-row:nth-child(4) span:last-child').textContent = 
+                        data.detected ? 'Yes' : 'No';
+                    document.querySelector('.status-row:nth-child(5) span:last-child').textContent = 
+                        `${data.ldr_value} (Threshold: ${data.threshold})`;
+                    
+                    document.querySelector('.updated').textContent = `Last updated: ${data.last_updated}`;
+                })
+                .catch(error => console.error('Error fetching light status:', error));
+        }
+        
+        // Set up control button event listeners
+        document.getElementById('turnOn').addEventListener('click', () => {
+            fetch('/api/manual_light_control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'turn_on',
+                    manual_override: true
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Light turned on:', data);
+                refreshStatus();
+            })
+            .catch(error => console.error('Error turning on light:', error));
+        });
+        
+        document.getElementById('turnOff').addEventListener('click', () => {
+            fetch('/api/manual_light_control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'turn_off',
+                    manual_override: true
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Light turned off:', data);
+                refreshStatus();
+            })
+            .catch(error => console.error('Error turning off light:', error));
+        });
+        
+        document.getElementById('autoMode').addEventListener('click', () => {
+            fetch('/api/manual_light_control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'auto_mode'
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Auto mode enabled:', data);
+                refreshStatus();
+            })
+            .catch(error => console.error('Error enabling auto mode:', error));
+        });
+        
+        // Initial refresh and set up periodic refresh
+        refreshStatus();
+        setInterval(refreshStatus, 5000); // Refresh every 5 seconds
+    </script>
+</body>
+</html>
