@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Light Status - Cloud Crop</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4f7fa;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            max-width: 1200px;
+            margin-top: 30px;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .status-on {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .status-off {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .table {
+            background-color: white;
+            border-radius: 8px;
+        }
+        .table th, .table td {
+            vertical-align: middle;
+        }
+        h1 {
+            color: #343a40;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Light Status Dashboard</h1>
+        
+        <!-- Current Status Card -->
+        <div class="card mb-4 p-4">
+            <h3>Current Light Status</h3>
+            <div class="row">
+                <div class="col-md-6">
+                    <p><strong>Status:</strong> 
+                        <span class="{% if light_state %}status-on{% else %}status-off{% endif %}">
+                            {{ light_status }}
+                        </span>
+                    </p>
+                    <p><strong>Device ID:</strong> {{ device_id }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>Schedule:</strong> {{ schedule }}</p>
+                    <p><strong>Last Updated:</strong> {{ timestamp }}</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- History Table -->
+        <div class="card p-4">
+            <h3>Status History</h3>
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Status</th>
+                        <th>Device ID</th>
+                        <th>Schedule</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in history %}
+                    <tr>
+                        <td>{{ entry.device_timestamp }}</td>
+                        <td class="{% if entry.light_state %}status-on{% else %}status-off{% endif %}">
+                            {{ entry.light_status }}
+                        </td>
+                        <td>{{ entry.device_id }}</td>
+                        <td>{{ entry.schedule }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
