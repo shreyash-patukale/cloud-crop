@@ -302,15 +302,17 @@ else:
     basedir = os.path.abspath(os.path.dirname(__file__))
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
 
-# Add these variables after your existing global variables
-light_status = "OFF"  # Default light status (ON/OFF)
-light_state = False   # Boolean representation of light status
-light_schedule = "6AM-9PM"  # Default schedule
-light_last_updated = "No data received yet"
+app = Flask(__name__)
+logging.basicConfig(level=logging.DEBUG)
+
+# Initialize variables (temporary; use a database for production)
+light_status = "OFF"
+light_state = False
+light_schedule = "Unknown"
+light_last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 light_device_id = "Unknown"
 
-# Add this new route to display light data
-@app.route('/')
+@app.route('/light')
 def lighting():
     return render_template('lighting.html',
                           light_status=light_status,
@@ -319,33 +321,32 @@ def lighting():
                           light_last_updated=light_last_updated,
                           light_device_id=light_device_id)
 
-# Add this new endpoint for the ESP32 to update light status
 @app.route('/update_light_status', methods=['POST'])
 def update_light_status():
     global light_status, light_state, light_schedule, light_last_updated, light_device_id
     
     try:
-        data = request.get_json()
+        if not request.is_json:
+            return jsonify({"message": "Content-Type must be application/json"}), 400
         
-        if data:
-            light_status = data.get('light_status', "OFF")
-            light_state = data.get('light_state', False)
-            light_schedule = data.get('schedule', "Unknown")
-            light_device_id = data.get('device_id', "Unknown")
-            light_last_updated = data.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            
-            return jsonify({"message": "Light status updated successfully!"}), 200
+        data = request.get_json()
+        if not data:
+            return jsonify({"message": "No JSON data provided"}), 400
+        
+        light_status = data.get('light_status', "OFF")
+        light_state = data.get('light_state', False)
+        light_schedule = data.get('schedule', "Unknown")
+        light_device_id = data.get('device_id', "Unknown")
+        light_last_updated = data.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        
+        app.logger.info("Light status updated successfully")
+        return jsonify({"message": "Light status updated successfully!"}), 200
     except Exception as e:
         app.logger.error(f"Error updating light status: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 400
-    
-    return jsonify({"message": "Invalid data"}), 400
+        return jsonify({"message": f"Error: {str(e)}"}), 500
 
-# Add this route to get light status for AJAX updates
 @app.route('/api/light')
 def get_light_data():
-    global light_status, light_state, light_schedule, light_last_updated, light_device_id
-    
     return jsonify({
         "light_status": light_status,
         "light_state": light_state,
@@ -353,3 +354,6 @@ def get_light_data():
         "light_last_updated": light_last_updated,
         "light_device_id": light_device_id
     })
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0')
