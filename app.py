@@ -289,3 +289,143 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+
+# Add these imports if not already present
+import datetime
+from flask import request, jsonify, render_template
+
+# Global variables for light data
+light_scheduled = False
+light_detected = False
+ldr_value = 0
+light_threshold = 500
+relay_state = "OFF"
+light_feedback = "NOT_DETECTED"
+light_last_updated = "No data received yet"
+manual_override = False
+
+@app.route('/update_light', methods=['POST'])
+def update_light_data():
+    global light_scheduled, light_detected, ldr_value, light_threshold
+    global relay_state, light_feedback, light_last_updated
+    
+    try:
+        data = request.get_json()
+        
+        if data:
+            light_scheduled = data.get('light_scheduled', False)
+            light_detected = data.get('light_detected', False)
+            ldr_value = data.get('ldr_value', 0)
+            light_threshold = data.get('light_threshold', 500)
+            relay_state = data.get('relay_state', 'OFF')
+            light_feedback = data.get('light_feedback', 'NOT_DETECTED')
+            
+            light_last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            app.logger.info(f"Light data updated - Scheduled: {light_scheduled}, Detected: {light_detected}, LDR: {ldr_value}")
+            return jsonify({"message": "Light data updated successfully!"}), 200
+    except Exception as e:
+        app.logger.error(f"Error updating light data: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 400
+    
+    return jsonify({"message": "Invalid data"}), 400
+
+@app.route('/api/light')
+def get_light_data():
+    return jsonify({
+        "light_scheduled": light_scheduled,
+        "light_detected": light_detected,
+        "ldr_value": ldr_value,
+        "light_threshold": light_threshold,
+        "relay_state": relay_state,
+        "light_feedback": light_feedback,
+        "light_last_updated": light_last_updated,
+        "status_match": light_scheduled == light_detected,
+        "manual_override": manual_override
+    })
+
+# Add this endpoint to match what the front-end is expecting
+@app.route('/api/light_status')
+def get_light_status():
+    # This endpoint should return the information the dashboard needs
+    return jsonify({
+        "is_on": relay_state == "ON",
+        "scheduled": light_scheduled,
+        "detected": light_detected,
+        "ldr_value": ldr_value,
+        "threshold": light_threshold,
+        "last_updated": light_last_updated,
+        "manual_override": manual_override
+    })
+
+# Add this endpoint to handle manual light control from the dashboard
+@app.route('/api/manual_light_control', methods=['POST'])
+def manual_light_control():
+    global relay_state, manual_override, light_scheduled
+    
+    try:
+        data = request.get_json()
+        
+        if data:
+            action = data.get('action')
+            manual_override = data.get('manual_override', False)
+            
+            # Handle the actions
+            if action == 'turn_on':
+                relay_state = "ON"
+                app.logger.info("Manual light control: Turning lights ON")
+            elif action == 'turn_off':
+                relay_state = "OFF"
+                app.logger.info("Manual light control: Turning lights OFF")
+            elif action == 'auto_mode':
+                manual_override = False
+                # In auto mode, determine light state based on schedule
+                now = datetime.datetime.now()
+                hour = now.hour
+                # Lights on from 6 AM to 9 PM
+                light_scheduled = 6 <= hour < 21
+                relay_state = "ON" if light_scheduled else "OFF"
+                app.logger.info(f"Auto mode enabled, light state set to {relay_state}")
+            else:
+                return jsonify({"message": "Invalid action"}), 400
+                
+            return jsonify({
+                "success": True,
+                "relay_state": relay_state,
+                "manual_override": manual_override
+            }), 200
+    except Exception as e:
+        app.logger.error(f"Error in manual light control: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 400
+    
+    return jsonify({"message": "Invalid data"}), 400
+
+# Add this route to display light control dashboard
+@app.route('/lights')
+def lights_dashboard():
+    # Get sensor data for the template (assuming you have sensor data available)
+    water_temperature = 22.5  # Example value - replace with actual sensor data
+    air_temperature = 24.3  # Example value - replace with actual sensor data
+    humidity = 65  # Example value - replace with actual sensor data
+    
+    return render_template('lights.html',
+                          water_temperature=water_temperature,
+                          air_temperature=air_temperature,
+                          humidity=humidity,
+                          light_scheduled=light_scheduled,
+                          light_detected=light_detected,
+                          ldr_value=ldr_value,
+                          relay_state=relay_state,
+                          light_feedback=light_feedback,
+                          last_updated=light_last_updated)
+
+# Add this to check if lights should be on based on schedule (for auto mode)
+def should_lights_be_on():
+    now = datetime.datetime.now()
+    hour = now.hour
+    # Lights on from 6 AM to 9 PM
+    return 6 <= hour < 21
+
+# Optional: Add a periodic task to update light status based on schedule in auto mode
+# This could be implemented with a separate thread, scheduler, or cron job
