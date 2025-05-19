@@ -67,7 +67,7 @@ class UserAdmin(ModelView):
 
 admin.add_view(UserAdmin(User, db.session))
 
-@app.route('/')
+@app.route('/home/')
 def index():
     return render_template('index.html', 
                           temperature=temperature, 
@@ -310,7 +310,7 @@ light_last_updated = "No data received yet"
 light_device_id = "Unknown"
 
 # Add this new route to display light data
-@app.route('/lighting/')
+@app.route('/')
 def lighting():
     return render_template('lighting.html',
                           light_status=light_status,
