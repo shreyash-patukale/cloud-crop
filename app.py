@@ -1,28 +1,21 @@
-from flask import Flask, jsonify, render_template, request, redirect, url_for, flash 
+import os
 import datetime
-from collections import deque
 import time
 import statistics
+from collections import deque
+from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
 from werkzeug.security import generate_password_hash, check_password_hash
-import os
-import threading
 
 app = Flask(__name__)
 
 # Flask configuration
 app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'
-
-# Modify database configuration to use Supabase
-if 'DATABASE_URL' in os.environ:
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
-else:
-    # Use your Supabase connection string
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres.vrmpffngnvkxqieqjtbc:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true'
-
+# Use Supabase connection pooling URL
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres.vrmpffngnvkxqieqjtbc:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize extensions
@@ -37,13 +30,10 @@ sensor_data = deque(maxlen=1440)
 # Placeholder initial values
 temperature = 0.0
 humidity = 0.0
-water_temperature = 0.0  # Added for DS18B20
-air_temperature = 0.0    # Added for DHT11
-tds = 0.0               # Added for TDS sensor
+water_temperature = 0.0
+air_temperature = 0.0
+tds = 0.0
 last_updated = "No data received yet"
-
-# Store last save time for 30-minute intervals
-last_save_time = time.time()
 
 # User model for cc_users table
 class User(UserMixin, db.Model):
@@ -61,19 +51,16 @@ class User(UserMixin, db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-# New SensorData model for storing sensor readings every 30 minutes
+# SensorData model for sensor_data table
 class SensorData(db.Model):
     __tablename__ = 'sensor_data'
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
-    temperature = db.Column(db.Float, nullable=False, default=0.0)
-    humidity = db.Column(db.Float, nullable=False, default=0.0)
-    water_temperature = db.Column(db.Float, nullable=False, default=0.0)
-    air_temperature = db.Column(db.Float, nullable=False, default=0.0)
-    tds = db.Column(db.Float, nullable=False, default=0.0)
-    
-    def __repr__(self):
-        return f'<SensorData {self.timestamp}: Temp={self.temperature}, Humidity={self.humidity}>'
+    temperature = db.Column(db.Float, nullable=False)
+    humidity = db.Column(db.Float, nullable=False)
+    water_temperature = db.Column(db.Float, nullable=False)
+    air_temperature = db.Column(db.Float, nullable=False)
+    tds = db.Column(db.Float, nullable=False)
 
 # Flask-Login user loader
 @login_manager.user_loader
@@ -94,9 +81,7 @@ class UserAdmin(ModelView):
 # Flask-Admin view for SensorData
 class SensorDataAdmin(ModelView):
     column_list = ['id', 'timestamp', 'temperature', 'humidity', 'water_temperature', 'air_temperature', 'tds']
-    column_default_sort = ('timestamp', True)
-    can_create = False
-    can_edit = False
+    form_columns = ['timestamp', 'temperature', 'humidity', 'water_temperature', 'air_temperature', 'tds']
     
     def is_accessible(self):
         return current_user.is_authenticated
@@ -107,40 +92,6 @@ class SensorDataAdmin(ModelView):
 admin.add_view(UserAdmin(User, db.session))
 admin.add_view(SensorDataAdmin(SensorData, db.session))
 
-def save_sensor_data_to_db():
-    """Save current sensor data to database every 30 minutes"""
-    global temperature, humidity, water_temperature, air_temperature, tds
-    
-    try:
-        sensor_record = SensorData(
-            temperature=temperature,
-            humidity=humidity,
-            water_temperature=water_temperature,
-            air_temperature=air_temperature,
-            tds=tds
-        )
-        db.session.add(sensor_record)
-        db.session.commit()
-        app.logger.info(f"Sensor data saved to database: {datetime.datetime.now()}")
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error saving sensor data to database: {str(e)}")
-
-def periodic_save():
-    """Background thread to save data every 30 minutes"""
-    global last_save_time
-    
-    while True:
-        current_time = time.time()
-        # Check if 30 minutes (1800 seconds) have passed
-        if current_time - last_save_time >= 1800:
-            with app.app_context():
-                save_sensor_data_to_db()
-            last_save_time = current_time
-        
-        # Check every minute
-        time.sleep(60)
-
 @app.route('/home/')
 def index():
     return render_template('index.html', 
@@ -150,42 +101,6 @@ def index():
                           air_temperature=air_temperature,
                           tds=tds,
                           last_updated=last_updated)
-
-@app.route('/sensor-history/')
-@login_required
-def sensor_history():
-    """New route to display historical sensor data"""
-    # Get date filter from query parameters
-    selected_date = request.args.get('date')
-    
-    # Base query
-    query = SensorData.query
-    
-    # Filter by date if provided
-    if selected_date:
-        try:
-            filter_date = datetime.datetime.strptime(selected_date, '%Y-%m-%d').date()
-            query = query.filter(
-                db.func.date(SensorData.timestamp) == filter_date
-            )
-        except ValueError:
-            flash('Invalid date format. Please use YYYY-MM-DD format.')
-            selected_date = None
-    
-    # Get data ordered by timestamp (newest first)
-    sensor_records = query.order_by(SensorData.timestamp.desc()).limit(100).all()
-    
-    # Get available dates for the dropdown
-    available_dates = db.session.query(
-        db.func.date(SensorData.timestamp).label('date')
-    ).distinct().order_by(db.func.date(SensorData.timestamp).desc()).all()
-    
-    available_dates = [date[0] for date in available_dates]
-    
-    return render_template('sensor_history.html', 
-                          sensor_records=sensor_records,
-                          available_dates=available_dates,
-                          selected_date=selected_date)
 
 @app.route('/api/sensor')
 def get_sensor_data():
@@ -266,15 +181,13 @@ def update_sensor_data():
             # Handle legacy and new sensor data formats
             temperature = data.get('temperature', data.get('water_temperature', 0))
             humidity = data.get('humidity', 0)
-            
-            # Store new sensor values if available
             water_temperature = data.get('water_temperature', data.get('temperature', 0))
             air_temperature = data.get('air_temperature', data.get('temperature', 0))
             tds = data.get('tds', 0)
             
             last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Store all data in history
+            # Store in deque for in-memory history
             sensor_data.append({
                 'timestamp': time.time(),
                 'temperature': temperature,
@@ -284,12 +197,64 @@ def update_sensor_data():
                 'tds': tds
             })
 
+            # Store in database every 30 minutes
+            now = datetime.datetime.now()
+            # Check if the current minute is at the 0 or 30 mark
+            if now.minute in (0, 30):
+                try:
+                    sensor_entry = SensorData(
+                        timestamp=now,
+                        temperature=temperature,
+                        humidity=humidity,
+                        water_temperature=water_temperature,
+                        air_temperature=air_temperature,
+                        tds=tds
+                    )
+                    db.session.add(sensor_entry)
+                    db.session.commit()
+                    app.logger.info("Sensor data saved to database")
+                except Exception as e:
+                    db.session.rollback()
+                    app.logger.error(f"Error saving sensor data to database: {str(e)}")
+
             return jsonify({"message": "Data updated successfully!"}), 200
     except Exception as e:
         app.logger.error(f"Error updating sensor data: {str(e)}")
         return jsonify({"message": f"Error: {str(e)}"}), 400
     
     return jsonify({"message": "Invalid data"}), 400
+
+@app.route('/history/', methods=['GET', 'POST'])
+def history():
+    selected_date = request.form.get('selected_date') if request.method == 'POST' else datetime.datetime.now().strftime("%Y-%m-%d")
+    try:
+        # Parse selected date
+        selected_date = datetime.datetime.strptime(selected_date, "%Y-%m-%d").date()
+        # Query sensor data for the selected date
+        start_time = datetime.datetime.combine(selected_date, datetime.time.min)
+        end_time = datetime.datetime.combine(selected_date, datetime.time.max)
+        data = SensorData.query.filter(
+            SensorData.timestamp >= start_time,
+            SensorData.timestamp <= end_time
+        ).order_by(SensorData.timestamp).all()
+        
+        # Format data for template
+        formatted_data = [
+            {
+                'timestamp': entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                'temperature': round(entry.temperature, 1),
+                'humidity': round(entry.humidity, 1),
+                'water_temperature': round(entry.water_temperature, 1),
+                'air_temperature': round(entry.air_temperature, 1),
+                'tds': round(entry.tds, 1)
+            } for entry in data
+        ]
+        
+        return render_template('history.html', data=formatted_data, selected_date=selected_date.strftime("%Y-%m-%d"))
+    except Exception as e:
+        app.logger.error(f"Error loading history: {str(e)}")
+        flash(f"Error loading history: {str(e)}")
+        return render_template('history.html', data=[], selected_date=selected_date)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -398,10 +363,4 @@ def delete_user(user_id):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        
-    # Start the background thread for periodic data saving
-    save_thread = threading.Thread(target=periodic_save, daemon=True)
-    save_thread.start()
-    
     app.run(debug=True, host='0.0.0.0', port=5000)
-    
