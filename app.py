@@ -224,7 +224,7 @@ def update_sensor_data():
                         air_temperature=air_temperature,
                         tds=tds
                     )
-                    db.session.add(sensor ENTRY)
+                    db.session.add(sensor_entry)
                     db.session.commit()
                     app.logger.info("Sensor data saved to database")
                 except Exception as e:
@@ -389,3 +389,4 @@ if __name__ == '__main__':
             # Restore runtime URL
             app.config['SQLALCHEMY_DATABASE_URI'] = original_uri
     app.run(debug=True, host='0.0.0.0', port=5000)
+    
