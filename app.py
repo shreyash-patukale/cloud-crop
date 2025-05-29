@@ -19,10 +19,10 @@ app.logger.setLevel('DEBUG')
 app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'
 
 # === DATABASE CONFIGURATION ===
-# Direct URL for migrations and table creation
+# Session pooler URL for migrations and table creation (IPv4-compatible)
 MIGRATION_URL = 'postgresql://postgres.vrmpffngnvkxqieqjtbc:TnJn4wGsg442Qtbr@aws-0-ap-south-1.pooler.supabase.com:5432/postgres'
 
-# Use environment variable for runtime database URL
+# Use environment variable for runtime database URL (transaction pooler)
 if 'DATABASE_URL' in os.environ:
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL').replace('?pgbouncer=true', '')
 else:
@@ -31,10 +31,25 @@ else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize database and create tables
+db = SQLAlchemy(app)
+with app.app_context():
+    # Use MIGRATION_URL for table creation
+    original_uri = app.config['SQLALCHEMY_DATABASE_URI']
+    app.config['SQLALCHEMY_DATABASE_URI'] = MIGRATION_URL
+    try:
+        db.create_all()
+        app.logger.info("Database tables created successfully")
+    except Exception as e:
+        app.logger.error(f"Error creating database tables: {str(e)}")
+        raise
+    finally:
+        # Restore runtime URL
+        app.config['SQLALCHEMY_DATABASE_URI'] = original_uri
 # === END DATABASE CONFIGURATION ===
 
 # Initialize extensions
-db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 admin = Admin(app, name='Cloud Crop Admin', template_mode='bootstrap4')
@@ -375,18 +390,4 @@ def delete_user(user_id):
         return jsonify({"message": f"Failed to delete user: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    with app.app_context():
-        # Use MIGRATION_URL for table creation to avoid PgBouncer restrictions
-        original_uri = app.config['SQLALCHEMY_DATABASE_URI']
-        app.config['SQLALCHEMY_DATABASE_URI'] = MIGRATION_URL
-        try:
-            db.create_all()
-            app.logger.info("Database tables created successfully")
-        except Exception as e:
-            app.logger.error(f"Error creating database tables: {str(e)}")
-            raise
-        finally:
-            # Restore runtime URL
-            app.config['SQLALCHEMY_DATABASE_URI'] = original_uri
     app.run(debug=True, host='0.0.0.0', port=5000)
-    
