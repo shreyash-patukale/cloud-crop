@@ -1,3 +1,4 @@
+```python
 import os
 import datetime
 import time
@@ -14,8 +15,13 @@ app = Flask(__name__)
 
 # Flask configuration
 app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'
-# Use Supabase connection pooling URL
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres.vrmpffngnvkxqieqjtbc:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true'
+# Use environment variable for database URL
+if 'DATABASE_URL' in os.environ:
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL').replace('?pgbouncer=true', '')
+else:
+    # Fallback to SQLite for local development
+    basedir = os.path.abspath(os.path.dirname(__file__))
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize extensions
@@ -199,7 +205,6 @@ def update_sensor_data():
 
             # Store in database every 30 minutes
             now = datetime.datetime.now()
-            # Check if the current minute is at the 0 or 30 mark
             if now.minute in (0, 30):
                 try:
                     sensor_entry = SensorData(
@@ -364,3 +369,4 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
     app.run(debug=True, host='0.0.0.0', port=5000)
+```
