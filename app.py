@@ -2,6 +2,7 @@ import os
 import datetime
 import time
 import statistics
+import logging
 from collections import deque
 from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
@@ -9,11 +10,13 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
 from werkzeug.security import generate_password_hash, check_password_hash
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 app = Flask(__name__)
 
-# Enable debug logging for troubleshooting
-app.logger.setLevel('DEBUG')
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Flask configuration
 app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'
@@ -22,31 +25,42 @@ app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521
 # Session pooler URL for migrations and table creation (IPv4-compatible)
 MIGRATION_URL = 'postgresql://postgres.vrmpffngnvkxqieqjtbc:TnJn4wGsg442Qtbr@aws-0-ap-south-1.pooler.supabase.com:5432/postgres'
 
-# Use environment variable for runtime database URL (transaction pooler)
-if 'DATABASE_URL' in os.environ:
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL').replace('?pgbouncer=true', '')
-else:
-    # Fallback to SQLite for local development
-    basedir = os.path.abspath(os.path.dirname(__file__))
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
+# Require DATABASE_URL environment variable
+if 'DATABASE_URL' not in os.environ:
+    logger.error("DATABASE_URL environment variable is not set")
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL').replace('?pgbouncer=true', '')
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize database and create tables
 db = SQLAlchemy(app)
-with app.app_context():
-    # Use MIGRATION_URL for table creation
-    original_uri = app.config['SQLALCHEMY_DATABASE_URI']
-    app.config['SQLALCHEMY_DATABASE_URI'] = MIGRATION_URL
-    try:
-        db.create_all()
-        app.logger.info("Database tables created successfully")
-    except Exception as e:
-        app.logger.error(f"Error creating database tables: {str(e)}")
-        raise
-    finally:
-        # Restore runtime URL
-        app.config['SQLALCHEMY_DATABASE_URI'] = original_uri
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type(Exception),
+    before=lambda retry_state: logger.debug(f"Attempting to create database tables, attempt {retry_state.attempt_number}"),
+    after=lambda retry_state: logger.debug(f"Attempt {retry_state.attempt_number} completed")
+)
+def create_tables():
+    with app.app_context():
+        original_uri = app.config['SQLALCHEMY_DATABASE_URI']
+        app.config['SQLALCHEMY_DATABASE_URI'] = MIGRATION_URL
+        try:
+            db.create_all()
+            logger.info("Database tables created successfully")
+        except Exception as e:
+            logger.error(f"Error creating database tables: {str(e)}")
+            raise
+        finally:
+            app.config['SQLALCHEMY_DATABASE_URI'] = original_uri
+
+try:
+    create_tables()
+except Exception as e:
+    logger.error(f"Failed to create database tables after retries: {str(e)}")
+    raise
 # === END DATABASE CONFIGURATION ===
 
 # Initialize extensions
@@ -185,10 +199,10 @@ def get_sensor_data():
                 'timestamp': current_interval - interval / 2,
                 'temperature': round(statistics.mean(temp_values) if temp_values else 0, 1),
                 'humidity': round(statistics.mean(hum_values) if hum_values else 0, 1),
-                'water_temperature': round(statistics.mean(water_temp_values) if water_temp_values else 0, 1),
-                'air_temperature': round(statistics.mean(air_temp_values) if air_temp_values else 0, 1),
-                'tds': round(statistics.mean(tds_values) if tds_values else 0, 1)
-            })
+                        'water_temperature': round(statistics.mean(water_temp_values) if water_temp_values else 0, 1),
+                        'air_temperature': round(statistics.mean(air_temp_values) if air_temp_values else 0, 1),
+                        'tds': round(statistics.mean(tds_values) if tds_values else 0, 1)
+                    })
 
     return jsonify({
         "temperature": temperature,
@@ -241,14 +255,14 @@ def update_sensor_data():
                     )
                     db.session.add(sensor_entry)
                     db.session.commit()
-                    app.logger.info("Sensor data saved to database")
+                    logger.info("Sensor data saved to database")
                 except Exception as e:
                     db.session.rollback()
-                    app.logger.error(f"Error saving sensor data to database: {str(e)}")
+                    logger.error(f"Error saving sensor data to database: {str(e)}")
 
             return jsonify({"message": "Data updated successfully!"}), 200
     except Exception as e:
-        app.logger.error(f"Error updating sensor data: {str(e)}")
+        logger.error(f"Error updating sensor data: {str(e)}")
         return jsonify({"message": f"Error: {str(e)}"}), 400
     
     return jsonify({"message": "Invalid data"}), 400
@@ -281,7 +295,7 @@ def history():
         
         return render_template('history.html', data=formatted_data, selected_date=selected_date.strftime("%Y-%m-%d"))
     except Exception as e:
-        app.logger.error(f"Error loading history: {str(e)}")
+        logger.error(f"Error loading history: {str(e)}")
         flash(f"Error loading history: {str(e)}")
         return render_template('history.html', data=[], selected_date=selected_date)
 
@@ -315,7 +329,7 @@ def user_management():
         users = User.query.all()
         return render_template('user_management.html', users=users)
     except Exception as e:
-        app.logger.error(f"Error loading user management: {str(e)}")
+        logger.error(f"Error loading user management: {str(e)}")
         return jsonify({"message": f"Error: {str(e)}"}), 500
 
 @app.route('/api/user', methods=['POST'])
@@ -340,11 +354,11 @@ def add_user():
         user.set_password(data['password'])
         db.session.add(user)
         db.session.commit()
-        app.logger.info(f"User {data['username']} created successfully")
+        logger.info(f"User {data['username']} created successfully")
         return jsonify({"message": "User added successfully"}), 201
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f"Error creating user: {str(e)}")
+        logger.error(f"Error creating user: {str(e)}")
         return jsonify({"message": f"Failed to create user: {str(e)}"}), 500
 
 @app.route('/api/user/<int:user_id>', methods=['PUT'])
@@ -369,11 +383,11 @@ def edit_user(user_id):
         if data.get('password'):
             user.set_password(data['password'])
         db.session.commit()
-        app.logger.info(f"User {user_id} updated successfully")
+        logger.info(f"User {user_id} updated successfully")
         return jsonify({"message": "User updated successfully"}), 200
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f"Error updating user: {str(e)}")
+        logger.error(f"Error updating user: {str(e)}")
         return jsonify({"message": f"Failed to update user: {str(e)}"}), 500
 
 @app.route('/api/user/<int:user_id>', methods=['DELETE'])
@@ -382,11 +396,11 @@ def delete_user(user_id):
     try:
         db.session.delete(user)
         db.session.commit()
-        app.logger.info(f"User {user_id} deleted successfully")
+        logger.info(f"User {user_id} deleted successfully")
         return jsonify({"message": "User deleted successfully"}), 200
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f"Error deleting user: {str(e)}")
+        logger.error(f"Error deleting user: {str(e)}")
         return jsonify({"message": f"Failed to delete user: {str(e)}"}), 500
 
 if __name__ == '__main__':
