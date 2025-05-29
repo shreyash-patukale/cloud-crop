@@ -9,8 +9,7 @@ from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
-from apscheduler.schedulers.background import BackgroundScheduler
-import atexit
+import threading
 
 app = Flask(__name__)
 
@@ -106,13 +105,34 @@ def save_sensor_data_to_db():
         db.session.rollback()
         app.logger.error(f"Error saving sensor data to database: {str(e)}")
 
-# Initialize scheduler for 30-minute data storage
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=save_sensor_data_to_db, trigger="interval", minutes=30)
-scheduler.start()
+# Global variable to track last save time
+last_save_time = time.time()
 
-# Shut down the scheduler when exiting the app
-atexit.register(lambda: scheduler.shutdown())
+# Function to check and save data every 30 minutes
+def periodic_save_check():
+    """Check if 30 minutes have passed and save data if needed"""
+    global last_save_time
+    current_time = time.time()
+    
+    # Check if 30 minutes (1800 seconds) have passed
+    if current_time - last_save_time >= 1800:  # 30 minutes = 1800 seconds
+        save_sensor_data_to_db()
+        last_save_time = current_time
+
+# Background thread function for periodic saving
+def background_save_worker():
+    """Background worker that runs every minute to check if data should be saved"""
+    while True:
+        try:
+            periodic_save_check()
+            time.sleep(60)  # Check every minute
+        except Exception as e:
+            app.logger.error(f"Error in background save worker: {str(e)}")
+            time.sleep(60)
+
+# Start background thread for periodic saving
+save_thread = threading.Thread(target=background_save_worker, daemon=True)
+save_thread.start()
 
 # Flask-Login user loader
 @login_manager.user_loader
@@ -252,6 +272,9 @@ def update_sensor_data():
                 'air_temperature': air_temperature,
                 'tds': tds
             })
+            
+            # Check if we need to save to database (every 30 minutes)
+            periodic_save_check()
 
             return jsonify({"message": "Data updated successfully!"}), 200
     except Exception as e:
