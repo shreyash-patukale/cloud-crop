@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, redirect, url_for, flash 
 import datetime
 from collections import deque
 import time
@@ -8,12 +8,22 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
 from werkzeug.security import generate_password_hash, check_password_hash
+import os
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
 
 app = Flask(__name__)
 
 # Flask configuration
 app.config['SECRET_KEY'] = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y521'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://ccdb_6oq2_user:ssVlSjuLjLiH1Wrx50j8PqoNDSTKAkie@dpg-d0keg3ggjchc73abrbi0-a/ccdb_6oq2'
+
+# Database configuration - Use Supabase PostgreSQL
+if 'DATABASE_URL' in os.environ:
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+else:
+    # Use your Supabase database URL (replace [YOUR-PASSWORD] with actual password)
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres.vrmpffngnvkxqieqjtbc:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize extensions
@@ -22,15 +32,15 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 admin = Admin(app, name='Cloud Crop Admin', template_mode='bootstrap4')
 
-# Initialize deque for sensor data (max 24 hours * 60 minutes = 1440 entries)
+# Initialize deque for real-time sensor data (max 24 hours * 60 minutes = 1440 entries)
 sensor_data = deque(maxlen=1440)
 
 # Placeholder initial values
 temperature = 0.0
 humidity = 0.0
-water_temperature = 0.0  # Added for DS18B20
-air_temperature = 0.0    # Added for DHT11
-tds = 0.0               # Added for TDS sensor
+water_temperature = 0.0
+air_temperature = 0.0
+tds = 0.0
 last_updated = "No data received yet"
 
 # User model for cc_users table
@@ -49,6 +59,61 @@ class User(UserMixin, db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+# New SensorData model for storing sensor readings every 30 minutes
+class SensorData(db.Model):
+    __tablename__ = 'sensor_data'
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    temperature = db.Column(db.Float, nullable=True)
+    humidity = db.Column(db.Float, nullable=True)
+    water_temperature = db.Column(db.Float, nullable=True)
+    air_temperature = db.Column(db.Float, nullable=True)
+    tds = db.Column(db.Float, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.isoformat(),
+            'temperature': self.temperature,
+            'humidity': self.humidity,
+            'water_temperature': self.water_temperature,
+            'air_temperature': self.air_temperature,
+            'tds': self.tds,
+            'created_at': self.created_at.isoformat()
+        }
+
+# Function to save current sensor data to database
+def save_sensor_data_to_db():
+    """Save current sensor readings to database"""
+    global temperature, humidity, water_temperature, air_temperature, tds
+    
+    try:
+        # Only save if we have valid data
+        if any([temperature, humidity, water_temperature, air_temperature, tds]):
+            sensor_record = SensorData(
+                temperature=temperature,
+                humidity=humidity,
+                water_temperature=water_temperature,
+                air_temperature=air_temperature,
+                tds=tds,
+                timestamp=datetime.datetime.utcnow()
+            )
+            db.session.add(sensor_record)
+            db.session.commit()
+            app.logger.info(f"Sensor data saved to database at {datetime.datetime.utcnow()}")
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error saving sensor data to database: {str(e)}")
+
+# Initialize scheduler for 30-minute data storage
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=save_sensor_data_to_db, trigger="interval", minutes=30)
+scheduler.start()
+
+# Shut down the scheduler when exiting the app
+atexit.register(lambda: scheduler.shutdown())
+
 # Flask-Login user loader
 @login_manager.user_loader
 def load_user(user_id):
@@ -65,7 +130,21 @@ class UserAdmin(ModelView):
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login'))
 
+# Flask-Admin view for SensorData
+class SensorDataAdmin(ModelView):
+    column_list = ['id', 'timestamp', 'temperature', 'humidity', 'water_temperature', 'air_temperature', 'tds']
+    column_default_sort = ('timestamp', True)
+    can_create = False
+    can_edit = False
+    
+    def is_accessible(self):
+        return current_user.is_authenticated
+    
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login'))
+
 admin.add_view(UserAdmin(User, db.session))
+admin.add_view(SensorDataAdmin(SensorData, db.session))
 
 @app.route('/home/')
 def index():
@@ -164,7 +243,7 @@ def update_sensor_data():
             
             last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Store all data in history
+            # Store all data in history (for real-time display)
             sensor_data.append({
                 'timestamp': time.time(),
                 'temperature': temperature,
@@ -180,6 +259,40 @@ def update_sensor_data():
         return jsonify({"message": f"Error: {str(e)}"}), 400
     
     return jsonify({"message": "Invalid data"}), 400
+
+# New route for historical data view
+@app.route('/historical-data/')
+def historical_data():
+    return render_template('historical_data.html')
+
+# API endpoint to get historical data with date filtering
+@app.route('/api/historical-data')
+def get_historical_data():
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    
+    try:
+        query = SensorData.query
+        
+        if start_date:
+            start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(SensorData.timestamp >= start_datetime)
+        
+        if end_date:
+            end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)
+            query = query.filter(SensorData.timestamp < end_datetime)
+        
+        # Order by timestamp descending (newest first)
+        sensor_records = query.order_by(SensorData.timestamp.desc()).all()
+        
+        return jsonify({
+            'data': [record.to_dict() for record in sensor_records],
+            'total': len(sensor_records)
+        })
+    
+    except Exception as e:
+        app.logger.error(f"Error fetching historical data: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -288,16 +401,6 @@ def delete_user(user_id):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        # Save initial data if sensors have values
+        save_sensor_data_to_db()
     app.run(debug=True, host='0.0.0.0', port=5000)
-
-# Add this at the beginning of the file
-import os
-
-# Modify database configuration to use SQLite in development
-if 'DATABASE_URL' in os.environ:
-    # Use PostgreSQL in production
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
-else:
-    # Use SQLite in development
-    basedir = os.path.abspath(os.path.dirname(__file__))
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
